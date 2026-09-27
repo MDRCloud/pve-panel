@@ -2,8 +2,17 @@
   "name": "pve-panel",
   "version": "0.1.0",
   "description": "Customer self-service control panel for Proxmox VE",
+  "private": true,
   "type": "module",
   "main": "src/server.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sebastianflint/pve-panel.git"
+  },
+  "homepage": "https://github.com/sebastianflint/pve-panel#readme",
+  "bugs": {
+    "url": "https://github.com/sebastianflint/pve-panel/issues"
+  },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/server.js",
     "dev": "node --disable-warning=ExperimentalWarning --watch src/server.js",

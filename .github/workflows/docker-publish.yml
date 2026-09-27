@@ -1,5 +1,5 @@
 # Builds the Docker image and publishes it to the GitHub Container Registry:
-#   ghcr.io/<owner>/<repo>
+#   ghcr.io/sebastianflint/pve-panel  (https://github.com/sebastianflint/pve-panel)
 # Tags: "latest" for the default branch, "1.2.3" / "1.2" / "1" for release tags
 # (git tag v1.2.3), "sha-<commit>" for every build. Pull requests only build.
 

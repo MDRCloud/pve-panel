@@ -1,8 +1,10 @@
-# For running the ready-made image from GitHub (no build, no source code needed).
-# Put this file and your .env into one folder on the NAS, e.g.
-# /volume1/docker/pve-panel, and create a Docker Project there.
+# PORTAINER version: running the ready-made image from GitHub.
+# Paste this into Portainer (Stacks, Add stack, Web editor) and enter your
+# settings under "Environment variables" (or "Load variables from .env file"
+# with your .env). Portainer saves them to stack.env; the env_file line below
+# passes them into the container. Without it the container gets none of them.
 #
-# In .env:
+# Settings:
 #   (optional) PANEL_IMAGE=ghcr.io/sebastianflint/pve-panel:1.2.0   to pin a release;
 #              the default is ghcr.io/sebastianflint/pve-panel:latest
 # plus the usual panel settings (see example.env).
@@ -13,7 +15,7 @@ services:
     pull_policy: always              # get the newest image of that tag on (re)deploy
     init: true
     restart: unless-stopped
-    env_file: .env
+    env_file: stack.env              # Portainer writes the stack's variables here
     environment:
       HOST: 0.0.0.0
       ADMIN_HOST: 0.0.0.0

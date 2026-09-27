@@ -4,6 +4,11 @@
 
 FROM node:22-bookworm-slim
 
+# Links the image on ghcr.io to its repository (also set by the CI workflow)
+LABEL org.opencontainers.image.source="https://github.com/sebastianflint/pve-panel" \
+      org.opencontainers.image.description="Self-service control panel for Proxmox VE" \
+      org.opencontainers.image.licenses="UNLICENSED"
+
 ENV NODE_ENV=production \
     PANEL_IN_CONTAINER=1 \
     HOST=0.0.0.0 \
