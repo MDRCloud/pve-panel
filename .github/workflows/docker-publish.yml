@@ -37,6 +37,26 @@ jobs:
       - name: Image name
         run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
+      # Release builds (tag v1.2.3) must match package.json; other builds are
+      # "<package.json version>-dev.<commit>". The version is stamped into the image.
+      - name: Version
+        id: ver
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF_NAME#v}"
+            if [ "$TAG" != "$PKG" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG. Release with 'npm version <patch|minor|major>' so both match."
+              exit 1
+            fi
+            VERSION="$TAG"
+          else
+            VERSION="$PKG-dev.${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION"
+
       - name: Set up QEMU (for the arm64 build)
         uses: docker/setup-qemu-action@v3
 
@@ -72,6 +92,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.ver.outputs.date }}
           sbom: true
           provenance: mode=max
           cache-from: type=gha
@@ -84,3 +108,23 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  # After a tagged image is published: a GitHub Release with generated notes.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists"; exit 0
+          fi
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME" \
+            --notes "Docker image: \`$IMAGE\` (also \`latest\`). Update: redeploy the stack/project with a fresh pull."

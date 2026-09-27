@@ -1,0 +1,7 @@
+# Groups the automatically generated release notes (GitHub Releases).
+changelog:
+  exclude:
+    authors: [dependabot]
+  categories:
+    - title: Changes
+      labels: ["*"]

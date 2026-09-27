@@ -68,7 +68,7 @@ export function generatePassword(length = 16) {
   return Array.from(bytes, (b) => chars[b % chars.length]).join('');
 }
 
-export function createAdmin({ root, api, toast, fail, confirmAction, promptText, esc, getMe }) {
+export function createAdmin({ root, api, toast, fail, confirmAction, promptText, esc, getMe, onAbout }) {
   const st = {
     tab: 'servers', users: [], vms: [], audit: [], filter: '', newUser: null,
     templates: [], storages: {}, vpn: null,
@@ -87,6 +87,10 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
       } else if (st.tab === 'users') {
         st.users = await api('/api/admin/users');
         if (!quiet) setTimeout(watchDeletions);
+      } else if (st.tab === 'about') {
+        st.about = await api(`/api/admin/about${st.refreshAbout ? '?refresh=1' : ''}`);
+        st.refreshAbout = false;
+        onAbout?.(st.about);
       } else if (st.tab === 'account') {
         // rendered by the shared security panel
       } else if (st.tab === 'vpn') {
@@ -105,7 +109,7 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
 
   // ---- shell ------------------------------------------------------------
   function render() {
-    const tabs = [['servers', 'Servers'], ['users', 'Customers'], ['templates', 'Templates'], ['vpn', 'VPN'], ['activity', 'Activity'], ['account', 'Your account']];
+    const tabs = [['servers', 'Servers'], ['users', 'Customers'], ['templates', 'Templates'], ['vpn', 'VPN'], ['activity', 'Activity'], ['account', 'Your account'], ['about', 'About']];
     root.innerHTML = `
       <div class="admin-inner">
         <h1>Administration</h1>
@@ -124,6 +128,7 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
     if (st.tab === 'vpn') renderVpn();
     if (st.tab === 'activity') renderActivity();
     if (st.tab === 'account') renderSecurity(root.querySelector('#admin-body'), { email: getMe().email });
+    if (st.tab === 'about') renderAbout();
   }
 
   // ---- servers ----------------------------------------------------------
@@ -720,6 +725,60 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
       ${tailscaleSection()}`;
   }
 
+  // ---- about --------------------------------------------------------------
+  function renderAbout() {
+    const a = st.about;
+    const u = a.update ?? {};
+    const date = (d) => (d ? new Date(d).toLocaleString() : '–');
+    const uptime = (sec) => {
+      const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+      return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`;
+    };
+    const ext = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+
+    const status = !u.checked
+      ? `<div class="notice about-notice"><p><strong>Couldn't check for updates.</strong> ${esc(u.reason ?? '')}</p></div>`
+      : u.updateAvailable
+        ? `<div class="notice warn about-notice">
+             <p><strong>Version ${esc(u.latest.version)} is available</strong>${u.latest.publishedAt ? `, released ${esc(new Date(u.latest.publishedAt).toLocaleDateString())}` : ''}.
+               ${ext(u.latest.url, "See what's new")}.</p>
+           </div>`
+        : u.latest
+          ? `<div class="notice about-notice ok"><p><strong>You're running the latest release.</strong></p></div>`
+          : `<div class="notice about-notice"><p>${esc(u.reason ?? 'No releases published yet.')}</p></div>`;
+
+    root.querySelector('#admin-body').innerHTML = `
+      <div class="about">
+        <div class="about-head">
+          <span class="about-version">v${esc(a.version)}</span>
+          <span class="pill ${a.isRelease ? 'pill-running' : 'pill-busy'}">${a.isRelease ? 'Release' : 'Development build'}</span>
+        </div>
+        ${status}
+        <dl class="specs cols-3">
+          <div><dt>Version</dt><dd class="mono">${a.releaseUrl && a.isRelease ? ext(a.releaseUrl, esc(a.version)) : esc(a.version)}</dd></div>
+          <div><dt>Commit</dt><dd class="mono">${a.commit ? (a.commitUrl ? ext(a.commitUrl, esc(a.commit.slice(0, 7))) : esc(a.commit.slice(0, 7))) : '–'}</dd></div>
+          <div><dt>Built</dt><dd>${esc(date(a.buildDate))}</dd></div>
+          <div><dt>Running since</dt><dd>${esc(date(a.startedAt))} <span class="muted small">(${esc(uptime(a.uptimeSeconds))})</span></dd></div>
+          <div><dt>Node.js</dt><dd class="mono">${esc(a.node)}</dd></div>
+          <div><dt>Source</dt><dd>${a.repoUrl ? ext(a.repoUrl, esc(a.repoUrl.replace(/^https:\/\//, ''))) : '–'}</dd></div>
+        </dl>
+        <div class="row">
+          <button class="btn" data-check-updates>Check for updates now</button>
+          ${u.checkedAt ? `<span class="muted small">Last checked ${esc(date(u.checkedAt))}</span>` : ''}
+        </div>
+
+        <h2 class="h2">How to update</h2>
+        <ol class="about-steps">
+          <li><strong>Portainer:</strong> Stacks, your stack, <em>Update the stack</em> with
+            <em>Re-pull image and redeploy</em> switched on.</li>
+          <li><strong>UGREEN Docker app:</strong> Project, your project, redeploy it (it pulls the image again).</li>
+          <li><strong>Command line:</strong> <span class="mono">docker compose pull && docker compose up -d</span></li>
+        </ol>
+        <p class="muted small">If you pinned a release in <span class="mono">PANEL_IMAGE</span>, change the version
+          there first. Your data stays in the volume; database changes are applied automatically at start.</p>
+      </div>`;
+  }
+
   // ---- activity ---------------------------------------------------------
   function renderActivity() {
     root.querySelector('#admin-body').innerHTML = `
@@ -800,6 +859,14 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
 
     if (t.hasAttribute('data-refresh-audit')) {
       load();
+      return;
+    }
+
+    if (t.hasAttribute('data-check-updates')) {
+      st.refreshAbout = true;
+      t.disabled = true;
+      t.textContent = 'Checking…';
+      load({ quiet: true });
       return;
     }
 
@@ -910,6 +977,11 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
 
   return {
     open() {
+      render();
+      load();
+    },
+    openTab(tab) {
+      st.tab = tab;
       render();
       load();
     },

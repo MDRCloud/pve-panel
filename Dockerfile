@@ -35,4 +35,13 @@ EXPOSE 3000 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+# Version stamps last, so a new commit doesn't invalidate the cached layers above
+# (set by .github/workflows/docker-publish.yml; "dev" when built by hand)
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=
+ENV PANEL_VERSION=$APP_VERSION \
+    PANEL_COMMIT=$GIT_SHA \
+    PANEL_BUILD_DATE=$BUILD_DATE
+
 CMD ["node", "--disable-warning=ExperimentalWarning", "src/server.js"]

@@ -628,6 +628,28 @@ dialog#twofa-admin { max-width: min(540px, calc(100vw - 32px)); }
 .account-btn:hover { background: var(--side-hover); color: var(--side-ink); }
 .account-btn .account { color: inherit; }
 
+/* Version / About */
+.version-badge {
+  position: relative; font: 600 12.5px var(--mono); color: var(--side-muted);
+  background: transparent; border: 1px solid var(--side-hover); border-radius: 999px;
+  padding: 3px 10px; cursor: pointer;
+}
+.version-badge:hover { color: var(--side-ink); border-color: var(--side-muted); }
+.version-badge.has-update { color: #ffd38a; border-color: rgb(240 176 77 / 0.5); }
+.version-badge.has-update::after {
+  content: ""; position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--warn); box-shadow: 0 0 0 2px var(--side);
+}
+.about { max-width: 880px; display: grid; gap: 16px; }
+.about-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.about-version { font: 700 30px var(--mono); letter-spacing: -0.02em; }
+.about-notice { margin: 0; }
+.about-notice.ok { border-color: color-mix(in srgb, var(--run) 40%, var(--line)); }
+.about .specs { margin: 0; }
+.about .h2 { margin: 12px 0 0; }
+.about-steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.about a { color: var(--signal); }
+
 /* =========================================================================
    Toasts & dialogs
    ========================================================================= */

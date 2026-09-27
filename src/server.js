@@ -9,6 +9,7 @@ import fastifyStatic from '@fastify/static';
 import { config } from './config.js';
 import { db } from './db.js';
 import { bootstrapAdmin } from './bootstrap.js';
+import { versionInfo, updateStatus } from './version.js';
 import authPlugin from './auth.js';
 import vmRoutes from './routes/vms.js';
 import consoleRoutes from './routes/console.js';
@@ -113,10 +114,15 @@ const admin = await buildServer('admin', async (app) => {
   await app.register(fastifyStatic, { root: web('shared'), prefix: '/shared/', decorateReply: false });
 });
 
+admin.log.info(`pve-panel ${versionInfo.version}${versionInfo.commit ? ` (${versionInfo.commit.slice(0, 7)})` : ''}, Node ${process.version}`);
 bootstrapAdmin(admin.log);
 
 await customer.listen({ port: config.port, host: config.host });
 await admin.listen({ port: config.adminPort, host: config.adminHost });
+
+setTimeout(() => updateStatus().then((u) => {
+  if (u.updateAvailable) admin.log.warn(`A newer version is available: ${u.latest.version} (${u.latest.url})`);
+}), 15_000).unref();
 
 // Make sure the VPN gateway matches the database (e.g. after it was rebuilt),
 // and every customer server carries the current isolation rules.

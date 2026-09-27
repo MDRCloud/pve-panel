@@ -40,7 +40,19 @@ const admin = createAdmin({
   root: $('#admin-view'),
   api, toast, fail, confirmAction, promptText, esc,
   getMe: () => me,
+  onAbout: showVersion,
 });
+
+/** Version in the top bar; a dot when a newer release is available. */
+function showVersion(about) {
+  const badge = $('#version-badge');
+  const update = about.update?.updateAvailable;
+  badge.hidden = false;
+  badge.classList.toggle('has-update', !!update);
+  badge.textContent = `v${about.version}`;
+  badge.title = update ? `Version ${about.update.latest.version} is available` : 'About this version';
+}
+$('#version-badge').addEventListener('click', () => admin.openTab('about'));
 
 function start(account) {
   me = account;
@@ -48,6 +60,7 @@ function start(account) {
   $('#app-view').hidden = false;
   $('#account-email').textContent = me.email;
   admin.open();
+  api('/api/admin/about').then(showVersion).catch(() => {});
 }
 
 $('#login-form').addEventListener('submit', async (e) => {

@@ -4,6 +4,7 @@ import { pve, clusterGuests, locateGuest, locateTemplate, invalidateGuestCache, 
 import { startCustomerDeletion, deletionPlan, destroyServer, isProtected } from '../cleanup.js';
 import { tailscaleOverview } from '../tailscale.js';
 import * as totp from '../totp.js';
+import { versionInfo, updateStatus } from '../version.js';
 import { usageOf } from '../provision.js';
 import { networkOf, allNetworks } from '../network.js';
 import { adminOverview, removeDevice, syncGateway } from '../vpn.js';
@@ -361,6 +362,13 @@ export default async function adminRoutes(app) {
     await syncGateway();
     return { ok: true };
   });
+
+  // ---- Version / updates ------------------------------------------------------
+  app.get('/api/admin/about', async (req) => ({
+    ...versionInfo,
+    uptimeSeconds: Math.round(process.uptime()),
+    update: await updateStatus({ force: req.query.refresh === '1' }),
+  }));
 
   // ---- Networks -------------------------------------------------------------
   app.get('/api/admin/networks', async () => allNetworks());
