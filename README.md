@@ -448,11 +448,18 @@ git push --follow-tags
 
 `npm version` raises the version in `package.json`, commits it and creates the tag. The workflow then:
 
-1. builds the image as `1.2.0`, `1.2`, `1` and `latest`
+1. builds the image as `1.2.0`, `1.2`, `1` and moves `latest` to it
 2. creates a **GitHub Release** with generated release notes
 3. refuses to build if the tag and `package.json` disagree
 
-Pushes to `main` without a tag build development versions such as `1.2.0-dev.a1b2c3d`.
+Pushes to `main` without a tag build development versions such as `1.2.0-dev.a1b2c3d` and publish them as `edge` — they never replace `latest`.
+
+| Image tag | Contains | Use it for |
+|---|---|---|
+| `latest` | the newest release | normal deployments |
+| `1.4` / `1` | newest release of that line | updates within a version line only |
+| `1.4.0` | exactly that release | fully pinned deployments |
+| `edge` | the newest development build from `main` | testing only |
 
 ### Updating a deployment
 

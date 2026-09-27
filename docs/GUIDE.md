@@ -724,8 +724,9 @@ workflow, so there's nothing to edit by hand:
   (plus `1.0`, `1` and `latest`) and creates a **GitHub Release** with release notes
   generated from the commits. The workflow refuses a tag that doesn't match
   `package.json`, so the two can't drift apart.
-- **Everyday pushes** to `main` without a tag build `latest` as a development
-  version, e.g. `1.0.1-dev.a1b2c3d`, shown as "Development build" in About.
+- **Everyday pushes** to `main` without a tag build a development version, e.g.
+  `1.0.1-dev.a1b2c3d`, published as `edge` (shown as "Development build" in About).
+  They never replace `latest`, which always points to the newest release.
 - **First release:** `package.json` starts at `1.0.0`; publish it once with
   `git tag -a v1.0.0 -m "v1.0.0"` and `git push --follow-tags`. From then on use
   `npm version`.
@@ -733,10 +734,10 @@ workflow, so there's nothing to edit by hand:
   "Check for updates now" forces it). It needs outbound access to
   `api.github.com`; for a private repository it can't see releases.
   `UPDATE_CHECK=false` turns it off.
-- **Which image to run:** `latest` always follows `main` (including development
-  builds). To update only on releases, pin `PANEL_IMAGE` to a version like
-  `ghcr.io/sebastianflint/pve-panel:1.0` (follows `1.0.x` fixes) and raise it when
-  you want a new minor or major version.
+- **Which image to run:** `latest` is the newest release. `1.0` follows only `1.0.x`
+  fixes, `1.0.0` is fully pinned, and `edge` is the newest development build from
+  `main` (for testing). Releasing an *older* line later (e.g. `1.3.1` after `1.4.0`)
+  would also move `latest`; pin a version if you maintain several lines.
 
 ### Running on a UGREEN NAS (UGOS Pro)
 

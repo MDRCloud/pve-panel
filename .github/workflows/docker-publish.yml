@@ -1,7 +1,11 @@
 # Builds the Docker image and publishes it to the GitHub Container Registry:
 #   ghcr.io/sebastianflint/pve-panel  (https://github.com/sebastianflint/pve-panel)
-# Tags: "latest" for the default branch, "1.2.3" / "1.2" / "1" for release tags
-# (git tag v1.2.3), "sha-<commit>" for every build. Pull requests only build.
+# Tags:
+#   release tags (git tag v1.2.3): "1.2.3", "1.2", "1" and "latest"
+#   pushes to main:                "edge" (development builds, e.g. 1.2.4-dev.abc1234)
+#   every build:                   "sha-<commit>"
+# So "latest" is always the newest RELEASE; development builds never replace it.
+# Pull requests only build.
 
 name: Docker image
 
@@ -76,8 +80,11 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=edge,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
