@@ -351,6 +351,13 @@ it does give up, check the server's load and that `qemu-guest-agent` is running,
 then try again. Updating the agent (virtio-win ISO on Windows) helps with
 recurring stalls.
 
+**"Agent error: PID lld does not exist":** the guest agent reports a finished
+command only once; if that answer arrived late, the agent has already forgotten the
+process ("lld" is a formatting bug in the Windows agent's message). The command
+did run. The panel now handles this: commands that are safe to repeat are run once
+more, and one-shot steps (`tailscale up`, `tailscale logout`) are never repeated;
+instead the panel checks whether Tailscale is really connected or disconnected.
+
 **If a device doesn't connect:**
 - *"Last connected: Never"* means the device never reached the gateway. Check
   the router port forward and `VPN_ENDPOINT`, and on the gateway run `wg show`.

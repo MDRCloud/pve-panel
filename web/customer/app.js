@@ -616,6 +616,8 @@ $('#detail').addEventListener('click', async (e) => {
     const r = await api(`/api/vms/${state.selected}/tailscale`, { method: 'DELETE' });
     if (r.removedFromTailnet) {
       toast('Disconnected from Tailscale');
+    } else if (r.removedFromTailnet === null) {
+      toast(`Disconnected. If “${r.hostname}” still appears under Machines in your Tailscale admin console, remove it there.`, 'warn');
     } else {
       // Only the server side could be reset; the device is still listed in the tailnet.
       toast(`Disconnected. Also remove “${r.hostname}” under Machines in your Tailscale admin console; it stays listed there as offline.`, 'warn');

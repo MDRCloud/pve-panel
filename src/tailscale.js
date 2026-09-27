@@ -17,7 +17,7 @@ import crypto from 'node:crypto';
 import { db, audit } from './db.js';
 import { config } from './config.js';
 import { pve, locateGuest, guestPath } from './pve.js';
-import { agentExec } from './agent.js';
+import { agentExec, AgentResultLost } from './agent.js';
 import { networkOf } from './network.js';
 
 export class TailscaleError extends Error {
@@ -69,12 +69,19 @@ async function upLinux(path, authKey, hostname, routes) {
   const keyFile = `/run/ts-authkey-${crypto.randomBytes(6).toString('hex')}`;
   const w = await agentExec(path, bash(`umask 077; cat > ${keyFile}`), 30_000, authKey);
   if (w.code !== 0) throw new TailscaleError(502, 'Could not hand the auth key to the server');
-  const r = await agentExec(path, bash(
-    `tailscale up --auth-key=file:${keyFile} --hostname=${hostname} --reset`
-    + `${routes ? ` --advertise-routes=${routes}` : ''} --timeout=90s; rc=$?; `
-    + `shred -u ${keyFile} 2>/dev/null || rm -f ${keyFile}; exit $rc`,
-  ), 150_000);
+  let r;
+  try {
+    r = await agentExec(path, bash(
+      `tailscale up --auth-key=file:${keyFile} --hostname=${hostname} --reset`
+      + `${routes ? ` --advertise-routes=${routes}` : ''} --timeout=90s; rc=$?; `
+      + `shred -u ${keyFile} 2>/dev/null || rm -f ${keyFile}; exit $rc`,
+    ), 150_000, undefined, { retryIfLost: false }); // the key is used up: never run twice
+  } catch (err) {
+    if (err instanceof AgentResultLost) return 'unknown'; // caller checks the real state
+    throw err;
+  }
   if (r.code !== 0) throw new TailscaleError(400, `Tailscale did not connect: ${firstLine(r.err) || firstLine(r.out) || `exit code ${r.code}`}`);
+  return 'ok';
 }
 
 async function installWindows(path) {
@@ -97,7 +104,9 @@ if (-not (Test-Path "$env:ProgramFiles\\Tailscale\\tailscale.exe")) {
 
 async function upWindows(path, authKey, hostname) {
   const keyFile = `$env:SystemRoot\\Temp\\ts-authkey-${crypto.randomBytes(6).toString('hex')}`;
-  const r = await agentExec(path, powershell(`
+  let r;
+  try {
+    r = await agentExec(path, powershell(`
 $key = [Console]::In.ReadToEnd()
 $f = "${keyFile}"
 Set-Content -Path $f -Value $key -NoNewline
@@ -107,10 +116,15 @@ try {
   if ($LASTEXITCODE -ne 0) { throw ($out | Out-String) }
 } finally { Remove-Item $f -Force -ErrorAction SilentlyContinue }
 'connected'
-`), 150_000, authKey);
+`), 150_000, authKey, { retryIfLost: false }); // the key is used up: never run twice
+  } catch (err) {
+    if (err instanceof AgentResultLost) return 'unknown'; // caller checks the real state
+    throw err;
+  }
   if (!r.out.includes('connected')) {
     throw new TailscaleError(400, `Tailscale did not connect: ${firstLine(r.err) || `exit code ${r.code}`}`);
   }
+  return 'ok';
 }
 
 /** Live status from inside the server (tailscale status --json). */
@@ -213,8 +227,13 @@ export async function connectTailscale(req, vmid, { authKey, mode, hostname }) {
       const routes = mode === 'gateway' ? net.subnet : null;
       if (os === 'windows') await installWindows(path); else await installLinux(path, mode === 'gateway');
       setState(vmid, { progress: 'Connecting to your tailnet' });
-      if (os === 'windows') await upWindows(path, authKey, hostname); else await upLinux(path, authKey, hostname, routes);
+      const up = os === 'windows' ? await upWindows(path, authKey, hostname) : await upLinux(path, authKey, hostname, routes);
       const live = await liveStatus(path, os).catch(() => null);
+      if (up === 'unknown' && live?.backend !== 'Running') {
+        // The agent lost the result and Tailscale isn't running: it didn't connect.
+        throw new TailscaleError(502, 'Tailscale did not connect (the guest agent lost the answer and Tailscale is not '
+          + 'running). Create a new auth key and try again; the old key may already be used.');
+      }
       setState(vmid, { state: 'connected', progress: null, ts_ip: live?.ip ?? null });
       audit(actor, vmid, 'tailscale_connected', { mode, ip: live?.ip ?? null });
     } catch (err) {
@@ -270,8 +289,25 @@ export async function disconnectTailscale(req, vmid) {
   if (guest.status !== 'running') throw new TailscaleError(409, 'Start the server to disconnect it from Tailscale');
 
   setState(vmid, { state: 'disconnecting', progress: 'Disconnecting' });
-  const out = await agentExec(path, os === 'windows' ? powershell(WIN_DISCONNECT) : bash(LINUX_DISCONNECT), 120_000)
-    .catch((err) => ({ code: 1, out: '', err: err.message }));
+  let lost = false;
+  const out = await agentExec(path, os === 'windows' ? powershell(WIN_DISCONNECT) : bash(LINUX_DISCONNECT), 120_000,
+    undefined, { retryIfLost: false })
+    .catch((err) => {
+      if (err instanceof AgentResultLost) { lost = true; return { code: 0, out: '', err: '' }; }
+      return { code: 1, out: '', err: err.message };
+    });
+
+  if (lost) {
+    // Result lost: check whether the server is really out of the tailnet.
+    const live = await liveStatus(path, os).catch(() => null);
+    if (live?.backend === 'Running') {
+      setState(vmid, { state: 'connected', progress: null });
+      throw new TailscaleError(502, 'Disconnecting did not finish (the guest agent lost the answer). Please try again.');
+    }
+    db.prepare('DELETE FROM tailscale WHERE vmid = ?').run(vmid);
+    audit(req, vmid, 'tailscale_disconnected', { removedFromTailnet: null, note: 'agent result lost, state verified' });
+    return { removedFromTailnet: null, hostname: r.hostname }; // unknown whether logout or local reset ran
+  }
 
   const clean = out.out.includes('logged-out');
   const wiped = !clean && out.out.includes('forgotten');
