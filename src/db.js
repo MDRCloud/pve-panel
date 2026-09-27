@@ -141,6 +141,10 @@ db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_oidc_identity
 addColumn('users', 'deleting', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('users', 'deletion_error', 'TEXT');
 
+// Proxmox OS type of each server (e.g. "win11", "l26"), remembered so lists and
+// the network map can show the right OS glyph without reading every config.
+addColumn('vms', 'ostype', 'TEXT');
+
 // Background jobs don't survive a restart; don't leave servers stuck forever.
 db.exec(`
   UPDATE vms SET state = 'failed', error = 'Setup was interrupted because the panel restarted'

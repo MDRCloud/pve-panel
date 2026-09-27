@@ -1,7 +1,7 @@
 # Start:   docker compose up -d --build
 # With automatic HTTPS (Caddy + Let's Encrypt):
 #          docker compose --profile https up -d --build
-# See README "Running with Docker".
+# See docs/GUIDE.md "Running with Docker".
 
 services:
   panel:
@@ -25,6 +25,8 @@ services:
       # - "192.168.1.20:3001:3001"
     volumes:
       - panel-data:/app/data
+      # Own OS icons (os-windows.svg, os-linux.svg …), with BRANDING_DIR=/app/branding
+      # - ./branding:/app/branding:ro
       # Proxmox CA certificate, if you use PVE_CA_FILE=/app/certs/pve-root-ca.pem
       # - ./pve-root-ca.pem:/app/certs/pve-root-ca.pem:ro
 

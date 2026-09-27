@@ -9,16 +9,20 @@ Give users a clean, secure interface to manage **only their own virtual machines
 [![Proxmox VE](https://img.shields.io/badge/Proxmox%20VE-8%20%7C%209-E57000?logo=proxmox&logoColor=white)](https://www.proxmox.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![OIDC](https://img.shields.io/badge/Auth-OIDC%20%2B%202FA-6C63FF)](#authentication)
+[![OIDC](https://img.shields.io/badge/Auth-OIDC%20%2B%202FA-6C63FF)](#-authentication)
 [![GHCR](https://img.shields.io/badge/Image-ghcr.io-181717?logo=github)](https://github.com/sebastianflint/pve-panel/pkgs/container/pve-panel)
+[![Release](https://img.shields.io/github/v/release/sebastianflint/pve-panel?label=Release)](https://github.com/sebastianflint/pve-panel/releases)
 
 [Features](#-features) ·
-[Architecture](#-architecture) ·
+[Screenshots](#️-screenshots) ·
+[Architecture](#️-architecture) ·
 [Quick Start](#-quick-start) ·
 [Networking](#-customer-network-isolation) ·
 [Authentication](#-authentication) ·
 [Deployment](#-deployment) ·
-[Security](#-security-model)
+[Versions](#-versions--updates) ·
+[Security](#️-security-model) ·
+[Full guide](docs/GUIDE.md)
 
 </div>
 
@@ -59,6 +63,8 @@ The browser **never communicates directly with Proxmox VE** and never receives t
 
 The customer and administration portals run as **separate web servers** in the same process. They use separate session cookies and signing keys, and the customer-facing server does not expose administrator routes.
 
+> 📘 This README is the overview. Every setup step, permission, firewall rule and troubleshooting tip is in the **[administrator guide](docs/GUIDE.md)**.
+
 ---
 
 ## ✨ Features
@@ -67,15 +73,18 @@ The customer and administration portals run as **separate web servers** in the s
 
 - Start, shut down, restart and force-stop assigned systems
 - Manage both **QEMU VMs and LXC containers**
-- View live status and guest information
+- Live **network map** of the customer's private network, servers and VPN
+- View live status and guest information, with Windows / Linux recognition
 - Display CPU, memory, disk and network usage graphs
-- Create, restore and delete snapshots
+- Create, restore and delete snapshots (optionally including RAM)
 - Launch an integrated browser console
 - Create new servers from administrator-approved templates
 - Delete self-created servers
 - View provisioning progress and actionable failure messages
 - Manage personal VPN devices
 - Connect servers to a personal Tailscale network
+- Manage their own two-factor authentication
+- See which panel version they're using
 
 ### Administrator experience
 
@@ -83,12 +92,13 @@ The customer and administration portals run as **separate web servers** in the s
 - Assign existing Proxmox VMs or containers to users
 - Configure provisioning quotas and limits
 - Publish selected templates
-- Manage customer-owned servers
+- Start, stop, restart and delete customer-owned servers
 - Review provisioning jobs and failures
-- Reset passwords and 2FA
+- Reset passwords and 2FA, require 2FA per user, link/unlink single sign-on
 - Review the activity/audit log
 - Monitor WireGuard and Tailscale usage
 - Delete customers together with their owned infrastructure
+- See the running version and whether an update is available
 
 ### Provisioning
 
@@ -109,7 +119,7 @@ PVE Panel supports automated provisioning for both Linux and Windows workloads.
 
 - Sysprep-based templates
 - Automated OOBE handling
-- Administrator password replacement
+- Administrator password replacement (verified inside Windows)
 - Computer rename
 - QEMU Guest Agent configuration
 - DHCP cleanup and validation
@@ -120,21 +130,17 @@ PVE Panel supports automated provisioning for both Linux and Windows workloads.
 
 ## 🖼️ Screenshots
 
-> Add screenshots from your deployment here to make the project page even more visual.
-
 | Customer dashboard | Server details |
 |---|---|
-| `docs/screenshots/customer-dashboard.png` | `docs/screenshots/server-details.png` |
+| ![Customer dashboard](docs/screenshots/customer-dashboard.png) | ![Server details](docs/screenshots/server-details.png) |
 
 | Admin portal | Provisioning |
 |---|---|
-| `docs/screenshots/admin-dashboard.png` | `docs/screenshots/provisioning.png` |
+| ![Admin portal](docs/screenshots/admin-dashboard.png) | ![Provisioning](docs/screenshots/provisioning.png) |
 
-Example Markdown once the files exist:
-
-```md
-![Customer dashboard](docs/screenshots/customer-dashboard.png)
-```
+| Sign-in | Version & updates |
+|---|---|
+| ![Sign-in](docs/screenshots/sign-in.png) | ![About](docs/screenshots/admin-about.png) |
 
 ---
 
@@ -184,7 +190,7 @@ A resource that does not belong to the signed-in customer is returned as **404**
 
 - Proxmox VE 8 or 9
 - Node.js **22.13+** for a native installation
-- or Docker / Docker Compose
+- or Docker / Docker Compose (also Portainer or a NAS Docker app)
 - A dedicated Proxmox API user/token
 - Optional: Proxmox SDN for isolated customer networks
 - Optional: QEMU Guest Agent for richer VM integration
@@ -294,6 +300,8 @@ For local HTTP testing, set:
 COOKIE_SECURE=false
 ```
 
+> ⚠️ Set `COOKIE_SECURE=true` again for production and serve the customer portal over HTTPS.
+
 ---
 
 ## 🐳 Deployment
@@ -312,6 +320,15 @@ docker compose exec panel \
   npm run user:create -- admin@example.com 'a-long-password' --admin
 ```
 
+Or, without a terminal, let the panel create it on first start:
+
+```env
+INITIAL_ADMIN_EMAIL=admin@example.com
+INITIAL_ADMIN_PASSWORD=replace-me
+```
+
+Remove `INITIAL_ADMIN_PASSWORD` after the initial account has been created.
+
 ### Prebuilt image
 
 Published container image:
@@ -320,18 +337,19 @@ Published container image:
 ghcr.io/sebastianflint/pve-panel
 ```
 
-The GitHub workflow builds `amd64` and `arm64` images from `main` and release tags.
+The GitHub workflow builds `amd64` and `arm64` images from `main` and release tags, with an SBOM and signed build provenance.
 
-For a server or NAS deployment, use:
+For a server or NAS deployment, use one of:
 
-```text
-deploy/docker-compose.yml
-```
+| File | For |
+|---|---|
+| `deploy/docker-compose.yml` | Docker Compose, UGREEN Docker app (reads `.env`) |
+| `deploy/docker-compose.portainer.yml` | Portainer stacks (reads the stack's variables) |
 
-and configure the desired image:
+The image defaults to `ghcr.io/sebastianflint/pve-panel:latest`. To pin a release:
 
 ```env
-PANEL_IMAGE=ghcr.io/sebastianflint/pve-panel:latest
+PANEL_IMAGE=ghcr.io/sebastianflint/pve-panel:1.1
 ```
 
 Then deploy:
@@ -339,6 +357,12 @@ Then deploy:
 ```bash
 docker compose up -d
 ```
+
+### Portainer
+
+Paste `deploy/docker-compose.portainer.yml` into **Stacks → Add stack → Web editor** and enter the settings under **Environment variables** (or load your `.env`).
+
+> Portainer saves stack variables to `stack.env`. The Portainer file passes them into the container with `env_file: stack.env`; with `env_file: .env` the container would start without settings.
 
 ### HTTPS with Caddy
 
@@ -370,16 +394,46 @@ A typical deployment directory is:
 /volume1/docker/pve-panel
 ```
 
-For a prebuilt-image deployment, place the deployment `docker-compose.yml` and `.env` in the directory and create a Docker Project in UGOS.
+For a prebuilt-image deployment, place the deployment `docker-compose.yml` and `.env` in the directory and create a Docker Project in UGOS (**Docker → Project → Create**).
 
-For first-time setup you may define:
+Add the NAS's IP to the Proxmox `management` IPSet so the panel can reach the Proxmox API.
 
-```env
-INITIAL_ADMIN_EMAIL=admin@example.com
-INITIAL_ADMIN_PASSWORD=replace-me
+---
+
+## 📦 Versions & updates
+
+The running version is stamped into the image by the release workflow — nothing to edit by hand.
+
+- **Admin portal:** version badge in the top bar (a dot = update available) and an **About** tab with version, commit, build date, uptime and update instructions
+- **Customer portal:** the version number in the sidebar and on the Account page (`SHOW_VERSION_TO_CUSTOMERS=false` hides it)
+- **Update check:** asks GitHub for the latest release, at most every 6 hours (`UPDATE_CHECK=false` turns it off)
+
+### Publishing a release
+
+```bash
+npm version patch      # 1.1.0 -> 1.1.1  (fixes)
+npm version minor      # 1.1.1 -> 1.2.0  (new features)
+npm version major      # 1.2.0 -> 2.0.0  (breaking changes)
+git push --follow-tags
 ```
 
-Remove `INITIAL_ADMIN_PASSWORD` after the initial account has been created.
+`npm version` raises the version in `package.json`, commits it and creates the tag. The workflow then:
+
+1. builds the image as `1.2.0`, `1.2`, `1` and `latest`
+2. creates a **GitHub Release** with generated release notes
+3. refuses to build if the tag and `package.json` disagree
+
+Pushes to `main` without a tag build development versions such as `1.2.0-dev.a1b2c3d`.
+
+### Updating a deployment
+
+| Deployment | Update |
+|---|---|
+| Portainer | Stacks → your stack → **Update the stack** with *Re-pull image and redeploy* |
+| UGREEN Docker app | Project → your project → redeploy |
+| Command line | `docker compose pull && docker compose up -d` |
+
+Data stays in the volume; database changes are applied automatically at start.
 
 ---
 
@@ -444,7 +498,7 @@ Customer 2                         ├── NAT ──► Internet
 
 Each network receives:
 
-- its own SDN VNet
+- its own SDN VNet, with the customer's name as alias (e.g. `lena (example.com)`)
 - dedicated `/24` subnet
 - gateway
 - DHCP
@@ -482,11 +536,27 @@ apt install dnsmasq
 systemctl disable --now dnsmasq
 ```
 
+### Host firewall
+
+Set these up **before** enabling the datacenter firewall:
+
+```bash
+# Keep the Proxmox UI/API reachable for your admin network and the panel host
+pvesh create /cluster/firewall/ipset --name management
+pvesh create /cluster/firewall/ipset/management --cidr 192.168.50.0/24
+
+# DHCP for customer networks — no source filter (requests come from 0.0.0.0)
+pvesh create /cluster/firewall/rules --type in --action ACCEPT --proto udp --dport 67 --enable 1
+
+# Ping to the host (blocked by default)
+pvesh create /cluster/firewall/rules --type in --action ACCEPT --macro Ping --enable 1
+```
+
 The panel creates and maintains the necessary customer SDN objects when provisioning is enabled.
 
 > **Important**
 >
-> Customer isolation depends on the Proxmox datacenter firewall being enabled. Validate management access before enabling it remotely.
+> Customer isolation depends on the Proxmox datacenter firewall being enabled. Validate management access before enabling it remotely. Locked out? From the console: `pvesh set /cluster/firewall/options --enable 0`.
 
 ---
 
@@ -494,7 +564,7 @@ The panel creates and maintains the necessary customer SDN objects when provisio
 
 ### Local authentication
 
-PVE Panel supports traditional username/password authentication with secure server-side controls and rate limiting.
+PVE Panel supports traditional username/password authentication with secure server-side controls and rate limiting. Password sign-in can be switched off per portal once SSO works.
 
 ### Two-factor authentication
 
@@ -517,28 +587,29 @@ Features include:
 - one-time use protection
 - encrypted TOTP secrets
 
+Locked out yourself? `npm run user:reset-2fa -- admin@example.com`
+
 ### OpenID Connect / SSO
 
 PVE Panel supports OpenID Connect for both the customer and administrator portals.
 
-Tested/provider-compatible scenarios include:
+Designed for standards-compliant providers such as:
 
 - Microsoft Entra ID
 - Keycloak
 - Authentik
 - Google Workspace
 - Okta
-- other standards-compliant OIDC providers
 
-The implementation uses:
+The implementation is tested against a certified OpenID provider and uses:
 
 - Authorization Code Flow
 - PKCE (`S256`)
 - `state`
 - `nonce`
 - discovery metadata
-- ID-token validation
-- optional Pushed Authorization Requests (PAR)
+- ID-token validation (via the OpenID-certified `openid-client`)
+- Pushed Authorization Requests (PAR) when the provider supports them
 - optional verified-domain restrictions
 - issuer + `sub` account binding
 
@@ -560,6 +631,10 @@ Callback URLs:
 https://panel.example.com/api/auth/oidc/callback
 http://localhost:3001/api/auth/oidc/callback
 ```
+
+Only the panel needs to reach the provider (outbound HTTPS); the provider never connects to the panel.
+
+> **Microsoft Entra ID** doesn't send `email_verified`: set `OIDC_REQUIRE_VERIFIED_EMAIL=false` together with `OIDC_ALLOWED_DOMAINS`. Provider notes are in the [guide](docs/GUIDE.md).
 
 Once SSO is validated, local password login can optionally be disabled independently for each portal.
 
@@ -681,6 +756,8 @@ Customers can:
 
 Private keys are shown once and are not retained by the panel.
 
+The gateway is prepared once with `docs/vpn/setup-gateway.sh` — see the [guide](docs/GUIDE.md) for the routing and port-forward steps.
+
 ### Tailscale
 
 When enabled, customers can connect individual servers to their own Tailscale account.
@@ -718,10 +795,11 @@ Key controls include:
 - Optional TOTP 2FA
 - OIDC with PKCE and token validation
 - Customer-specific SDN isolation
-- VM firewall enforcement
+- VM firewall enforcement (incoming and outgoing)
 - IP and MAC filtering
 - Restricted VPN routing
 - Proxmox API token kept server-side
+- No secrets in the container image
 
 ### TLS to Proxmox
 
@@ -821,10 +899,10 @@ Create an administrator:
 npm run user:create -- admin@example.com 'a-long-password' --admin
 ```
 
-Create a customer:
+Create a customer (optionally requiring 2FA):
 
 ```bash
-npm run user:create -- customer@example.com 'another-long-password'
+npm run user:create -- customer@example.com 'another-long-password' --require-2fa
 ```
 
 Assign an existing VM or container:
@@ -852,7 +930,7 @@ npm run db:backup
 Change the product name through `.env`:
 
 ```env
-PANEL_NAME=Harborline
+PANEL_NAME=PVE Panel
 ```
 
 The configured name is used on:
@@ -862,6 +940,28 @@ The configured name is used on:
 - browser titles
 - customer portal
 - administrator portal
+- the authenticator app entry for 2FA
+
+### Own OS icons
+
+Windows and Linux servers are shown with neutral built-in glyphs. To use your own icons, place any of these files in the branding folder:
+
+```text
+os-windows.svg   os-linux.svg     (or .png / .webp)
+```
+
+The folder is `BRANDING_DIR` (default `data/branding/` next to the database). With Docker, mount it:
+
+```yaml
+volumes:
+  - ./branding:/app/branding:ro
+```
+
+```env
+BRANDING_DIR=/app/branding
+```
+
+Only these file names are served, with a strict sandbox policy. Make sure you're allowed to use the images you add.
 
 ---
 
@@ -875,6 +975,7 @@ The configured name is used on:
 │   ├── db.js
 │   ├── pve.js
 │   ├── auth.js
+│   ├── bootstrap.js
 │   ├── provision.js
 │   ├── network.js
 │   ├── windows.js
@@ -884,9 +985,11 @@ The configured name is used on:
 │   ├── oidc.js
 │   ├── vpn.js
 │   ├── agent.js
+│   ├── version.js
 │   └── routes/
 │       ├── vms.js
 │       ├── console.js
+│       ├── vpn.js
 │       └── admin.js
 │
 ├── web/
@@ -895,6 +998,8 @@ The configured name is used on:
 │   └── shared/
 │
 ├── docs/
+│   ├── GUIDE.md
+│   ├── screenshots/
 │   ├── windows/
 │   │   └── unattend.xml
 │   └── vpn/
@@ -902,9 +1007,13 @@ The configured name is used on:
 │
 ├── scripts/
 ├── deploy/
-│   └── docker-compose.yml
+│   ├── docker-compose.yml
+│   └── docker-compose.portainer.yml
 │
 ├── .github/
+│   ├── workflows/docker-publish.yml
+│   ├── dependabot.yml
+│   └── release.yml
 ├── Dockerfile
 ├── docker-compose.yml
 ├── Caddyfile
@@ -929,6 +1038,7 @@ The configured name is used on:
 | `DELETE` | `/api/vms/:vmid/snapshots/:name` | Delete snapshot |
 | `POST` | `/api/vms/:vmid/console` | Create console session |
 | `GET (WS)` | `/api/console/:session` | Console WebSocket |
+| `GET` | `/api/account` | Limits, usage, network, panel version |
 | `GET` | `/api/templates` | Available templates |
 | `POST` | `/api/vms` | Provision a server |
 | `DELETE` | `/api/vms/:vmid` | Delete a self-created server |
@@ -938,7 +1048,7 @@ The configured name is used on:
 | `GET/POST/DELETE` | `/api/vms/:vmid/tailscale` | Manage Tailscale |
 | `GET/POST` | `/api/account/2fa/...` | Manage 2FA |
 
-The administrator API is available only through the administrator server and an authenticated admin session.
+The administrator API is available only through the administrator server and an authenticated admin session. `GET /healthz` reports liveness for Docker and monitoring.
 
 ---
 
@@ -1052,9 +1162,10 @@ When reporting a problem, useful information includes:
 
 - Proxmox VE version
 - deployment method
-- PVE Panel version / commit
+- PVE Panel version / commit (admin portal → About)
 - browser
 - relevant container/application logs
+- the reason shown in the Activity tab, if any
 - exact error message
 - steps to reproduce
 
@@ -1087,6 +1198,7 @@ Give customers the controls they need — while keeping the hypervisor, credenti
 
 [⭐ Star the project](https://github.com/sebastianflint/pve-panel) ·
 [🐛 Report an issue](https://github.com/sebastianflint/pve-panel/issues) ·
-[📦 Container image](https://github.com/sebastianflint/pve-panel/pkgs/container/pve-panel)
+[📦 Container image](https://github.com/sebastianflint/pve-panel/pkgs/container/pve-panel) ·
+[📘 Administrator guide](docs/GUIDE.md)
 
 </div>

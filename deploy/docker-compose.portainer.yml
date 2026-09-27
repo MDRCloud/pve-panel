@@ -28,6 +28,7 @@ services:
       # - "192.168.1.20:3001:3001"
     volumes:
       - panel-data:/app/data
+      # - ./branding:/app/branding:ro   (own OS icons; BRANDING_DIR=/app/branding)
       # - ./pve-root-ca.pem:/app/certs/pve-root-ca.pem:ro   (PVE_CA_FILE=/app/certs/pve-root-ca.pem)
 
 volumes:

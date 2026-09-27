@@ -3,6 +3,7 @@
 // Returns an SVG string; nodes carry data-vmid / data-open for click handling.
 
 import { esc } from '/shared/ui.js';
+import { customOsIcon } from '/shared/icons.js';
 
 const W = 720, H = 330, CX = 360, CY = 172, RX = 262, RY = 104;
 const MAX_NODES = 11;
@@ -16,8 +17,11 @@ const GLYPH = {
   more: '<path d="M6 12h.01M12 12h.01M18 12h.01"/>',
 };
 
-const glyph = (name, x, y, size = 20) =>
-  `<svg x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${GLYPH[name]}</svg>`;
+const glyph = (name, x, y, size = 20) => {
+  const own = customOsIcon(name);
+  if (own) return `<image href="${own}" x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}"/>`;
+  return `<svg x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${GLYPH[name]}</svg>`;
+};
 
 const short = (s, n = 16) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 

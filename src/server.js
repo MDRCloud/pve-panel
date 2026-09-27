@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
@@ -47,6 +48,7 @@ function errorHandler(err, req, reply) {
 function securityHeaders(app) {
   app.addHook('onSend', async (req, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff');
+    if (req.url.startsWith('/branding/')) return payload; // keeps its own sandbox policy
     reply.header('X-Frame-Options', 'DENY');
     reply.header('Referrer-Policy', 'same-origin');
     reply.header('Content-Security-Policy', [
@@ -61,6 +63,36 @@ function securityHeaders(app) {
   });
 }
 
+// ---- Own icon files (branding folder) ----------------------------------------
+const brandingDir = path.resolve(config.brand.dir || path.join(path.dirname(path.resolve(config.dbPath)), 'branding'));
+const ICON_FILE = /^os-(windows|linux)\.(svg|png|webp)$/;
+
+/** { windows: '/branding/os-windows.svg', … } for the icon files that exist. */
+function osIcons() {
+  const found = {};
+  try {
+    for (const f of fs.readdirSync(brandingDir)) {
+      const m = ICON_FILE.exec(f);
+      if (m && !found[m[1]]) found[m[1]] = `/branding/${f}`;
+    }
+  } catch { /* no branding folder */ }
+  return found;
+}
+
+async function brandingFiles(app) {
+  await app.register(fastifyStatic, {
+    root: brandingDir,
+    prefix: '/branding/',
+    decorateReply: false,
+    allowedPath: (p) => ICON_FILE.test(p.replace(/^\//, '')),
+    setHeaders: (res) => {
+      // Files added by the operator: never allow scripts, even in an SVG opened directly.
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    },
+  });
+}
+
 async function buildServer(name, setup) {
   const app = Fastify({
     logger: { base: { server: name } },
@@ -72,7 +104,7 @@ async function buildServer(name, setup) {
   await app.register(cookie);
   await app.register(rateLimit, { global: false });
   // Public: the sign-in page shows the product name before anyone is signed in.
-  app.get('/api/brand', async () => ({ name: config.brand.name }));
+  app.get('/api/brand', async () => ({ name: config.brand.name, osIcons: osIcons() }));
   // Liveness for Docker/monitoring: the process runs and the database answers.
   app.get('/healthz', { logLevel: 'warn' }, async (req, reply) => {
     try {
@@ -97,6 +129,7 @@ const customer = await buildServer('customer', async (app) => {
 
   await app.register(fastifyStatic, { root: web('customer') });
   await app.register(fastifyStatic, { root: web('shared'), prefix: '/shared/', decorateReply: false });
+  if (fs.existsSync(brandingDir)) await brandingFiles(app);
   await app.register(fastifyStatic, {
     root: path.join(root, 'node_modules', '@novnc', 'novnc'),
     prefix: '/novnc/',
@@ -112,6 +145,7 @@ const admin = await buildServer('admin', async (app) => {
 
   await app.register(fastifyStatic, { root: web('admin') });
   await app.register(fastifyStatic, { root: web('shared'), prefix: '/shared/', decorateReply: false });
+  if (fs.existsSync(brandingDir)) await brandingFiles(app);
 });
 
 admin.log.info(`pve-panel ${versionInfo.version}${versionInfo.commit ? ` (${versionInfo.commit.slice(0, 7)})` : ''}, Node ${process.version}`);

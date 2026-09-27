@@ -31,8 +31,14 @@ export function icon(name, { size = 18, cls = '' } = {}) {
   return `<svg class="icon ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? paths.server}</svg>`;
 }
 
+// Own icon files from the branding folder, set by applyBrand(): { windows: url, … }
+let customOsIcons = {};
+export const customOsIcon = (os) => customOsIcons[os] ?? null;
+
 /** OS glyph for a server: 'windows' | 'linux' | anything else = generic server. */
 export function osIcon(os, size = 20) {
+  const own = customOsIcon(os);
+  if (own) return `<img class="os-glyph os-img" src="${own}" width="${size}" height="${size}" alt="">`;
   return icon(os === 'windows' ? 'windows' : os === 'linux' ? 'linux' : 'server', { size, cls: 'os-glyph' });
 }
 
@@ -49,10 +55,14 @@ export function brandMark(size = 28) {
 
 /** Fetches the product name and applies it to the page (title + [data-brand]). */
 export async function applyBrand(suffix = '') {
-  let name = 'Server panel';
+  let name = 'PVE Panel';
   try {
     const r = await fetch('/api/brand');
-    if (r.ok) name = (await r.json()).name || name;
+    if (r.ok) {
+      const b = await r.json();
+      name = b.name || name;
+      customOsIcons = b.osIcons ?? {};
+    }
   } catch { /* keep default */ }
   document.querySelectorAll('[data-brand]').forEach((el) => { el.textContent = name; });
   document.title = suffix ? `${suffix} – ${name}` : name;

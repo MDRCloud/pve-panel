@@ -74,7 +74,7 @@ systemctl restart wg-quick@wg0
 
 echo
 echo "Done. Gateway public key: $(wg show wg0 public-key)"
-echo "Listening on UDP ${PORT}. Next steps (see README, section VPN access):"
+echo "Listening on UDP ${PORT}. Next steps (see docs/GUIDE.md, section VPN access):"
 echo "  - on the Proxmox host: route ${VPN_PREFIX}.0.0/16 via this VM's LAN IP"
 echo "  - on your router: forward UDP ${PORT} to this VM"
 echo "  - in the panel's .env: VPN_ENABLED=true, VPN_GATEWAY_VMID, VPN_ENDPOINT"

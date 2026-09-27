@@ -9,7 +9,9 @@ function required(key) {
 export const config = {
   // Product name shown in both interfaces (sign-in, sidebar, page titles)
   brand: {
-    name: (process.env.PANEL_NAME || 'Server panel').trim().slice(0, 40),
+    name: (process.env.PANEL_NAME || 'PVE Panel').trim().slice(0, 40),
+    // Optional own icon files (os-windows.svg, os-linux.png, …); see docs/GUIDE.md
+    dir: process.env.BRANDING_DIR || null,
   },
   // Customer panel
   port: Number(process.env.PORT || 3000),

@@ -63,8 +63,19 @@ function recordTask(req, guest, upid, action) {
 const templateSetup = db.prepare('SELECT setup FROM templates WHERE vmid = ?');
 
 /** 'windows' | 'linux' | null — for the OS glyph in the interface. */
+const saveOstype = db.prepare('UPDATE vms SET ostype = ? WHERE vmid = ?');
+
+/** 'windows' | 'linux' | null. Proxmox ostypes: win* = Windows, l24/l26 = Linux, others unknown. */
+function familyOf(ostype) {
+  if (!ostype) return null;
+  if (/^w/.test(ostype)) return 'windows';
+  if (/^l2/.test(ostype)) return 'linux';
+  return null;
+}
+
 function osOf(row, ostype) {
-  if (ostype) return /^w/.test(ostype) ? 'windows' : 'linux';
+  const known = familyOf(ostype ?? row.ostype);
+  if (known) return known;
   const tpl = row.spec ? JSON.parse(row.spec).template : null;
   const setup = tpl ? templateSetup.get(tpl)?.setup : null;
   if (setup) return setup === 'windows' ? 'windows' : 'linux';
@@ -118,6 +129,13 @@ export default async function vmRoutes(app) {
   app.get('/api/vms', async (req) => {
     const rows = listForUser.all(req.account.id);
     const guests = await clusterGuests();
+    // First time a server shows up: read its OS type once (e.g. assigned Windows VMs).
+    const unknown = rows.filter((r) => !r.ostype && r.state === 'ready' && guests.has(r.vmid));
+    await Promise.allSettled(unknown.map(async (r) => {
+      const cfg = await pve.get(`${guestPath(guests.get(r.vmid))}/config`);
+      r.ostype = cfg.ostype ?? (r.type === 'lxc' ? 'l26' : 'other');
+      saveOstype.run(r.ostype, r.vmid);
+    }));
     return rows.map((row) => summarize(row, guests.get(row.vmid)));
   });
 
@@ -225,6 +243,7 @@ export default async function vmRoutes(app) {
       pve.get(`${path}/status/current`),
       pve.get(`${path}/config`),
     ]);
+    if (cfg.ostype && cfg.ostype !== row.ostype) saveOstype.run(cfg.ostype, row.vmid);
 
     const ips = guest.type === 'qemu' && status.status === 'running' && status.agent
       ? await guestIps(path)

@@ -684,7 +684,7 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
           <h2>WireGuard VPN is switched off</h2>
           <p class="muted">Set up the WireGuard gateway VM and set <span class="mono">VPN_ENABLED=true</span>,
             <span class="mono">VPN_GATEWAY_VMID</span> and <span class="mono">VPN_ENDPOINT</span> in the panel's
-            <span class="mono">.env</span>. The README section “VPN access” has the steps.</p>
+            <span class="mono">.env</span>. The administrator guide (docs/GUIDE.md, “VPN access”) has the steps.</p>
         </div>
         ${tailscaleSection()}`;
       return;

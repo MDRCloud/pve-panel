@@ -7,7 +7,7 @@ import { netMap } from '/netmap.js';
 import { signInSecondStep, renderSecurity } from '/shared/twofa.js';
 import { prepareSignIn, resumeSso } from '/shared/signin.js';
 
-applyBrand();
+const brandReady = applyBrand();
 document.querySelectorAll('[data-brand-mark]').forEach((el) => { el.innerHTML = brandMark(30); });
 
 setUnauthorizedHandler(() => showLogin());
@@ -185,6 +185,7 @@ function serverRow(vm) {
   const memShare = vm.maxmem ? vm.mem / vm.maxmem : 0;
   const ready = vm.state === 'ready' && vm.status === 'running';
   const facts = [
+    vm.os === 'windows' ? 'Windows' : vm.os === 'linux' ? 'Linux' : null,
     vm.cores ? `${vm.cores} ${vm.cores === 1 ? 'core' : 'cores'}` : null,
     vm.maxmem ? `${bytes(vm.maxmem)} memory` : null,
     vm.maxdisk ? `${bytes(vm.maxdisk)} disk` : null,
@@ -1191,6 +1192,7 @@ $('#nav-account').addEventListener('click', openAccount);
 
 // ---------- boot -----------------------------------------------------------
 async function startApp(me) {
+  await brandReady; // product name and own OS icons before the first render
   state.me = me;
   $('#login-view').hidden = true;
   $('#app-view').hidden = false;
