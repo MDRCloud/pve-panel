@@ -7,6 +7,7 @@ import {
 import { networkOf } from '../network.js';
 import { vpnInfoFor } from '../vpn.js';
 import { tailscaleStatus, connectTailscale, disconnectTailscale } from '../tailscale.js';
+import { versionInfo } from '../version.js';
 
 const ownedByUser = db.prepare('SELECT * FROM vms WHERE vmid = ? AND user_id = ?');
 const listForUser = db.prepare('SELECT * FROM vms WHERE user_id = ? ORDER BY vmid');
@@ -127,7 +128,9 @@ export default async function vmRoutes(app) {
     const network = networkOf(a.id);
     const vpn = vpnInfoFor(a.id);
     const tailscale = config.tailscale.enabled;
-    if (!a.can_create) return { canCreate: false, network, vpn, tailscale };
+    // Version number only; commit, build date and update status stay admin-only.
+    const panelVersion = config.showVersionToCustomers ? versionInfo.version : null;
+    if (!a.can_create) return { canCreate: false, network, vpn, tailscale, panelVersion };
     return {
       canCreate: true,
       limits: limitsOf(a),
@@ -136,6 +139,7 @@ export default async function vmRoutes(app) {
       networksEnabled: config.network.enabled,
       vpn,
       tailscale,
+      panelVersion,
     };
   });
 

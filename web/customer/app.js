@@ -1177,6 +1177,13 @@ function openAccount() {
         </div>
       </header>
       <div id="security"></div>
+      ${state.account.panelVersion ? `
+        <section class="security-card about-panel">
+          <div>
+            <h2 class="twofa-title">About this panel</h2>
+            <p class="muted">You're using version <span class="mono">${esc(state.account.panelVersion)}</span>.</p>
+          </div>
+        </section>` : ''}
     </div>`;
   renderSecurity($('#security'), { email: state.me.email });
 }
@@ -1190,6 +1197,9 @@ async function startApp(me) {
   $('#account-email').textContent = me.email;
 
   state.account = await api('/api/account').catch(() => ({ canCreate: false }));
+  const pv = $('#panel-version');
+  pv.hidden = !state.account.panelVersion;
+  pv.textContent = state.account.panelVersion ? `Version ${state.account.panelVersion}` : '';
   await loadList().catch(fail);
 
   if (location.hash === '#new' && state.account.canCreate) {
