@@ -12,6 +12,7 @@ Give users a clean, secure interface to manage **only their own virtual machines
 [![OIDC](https://img.shields.io/badge/Auth-OIDC%20%2B%202FA-6C63FF)](#-authentication)
 [![GHCR](https://img.shields.io/badge/Image-ghcr.io-181717?logo=github)](https://github.com/sebastianflint/pve-panel/pkgs/container/pve-panel)
 [![Release](https://img.shields.io/github/v/release/sebastianflint/pve-panel?label=Release)](https://github.com/sebastianflint/pve-panel/releases)
+[![AI-assisted](https://img.shields.io/badge/Built%20with-AI%20assistance-8A2BE2)](#-ai-assisted-development)
 
 [Features](#-features) ·
 [Screenshots](#️-screenshots) ·
@@ -22,6 +23,7 @@ Give users a clean, secure interface to manage **only their own virtual machines
 [Deployment](#-deployment) ·
 [Versions](#-versions--updates) ·
 [Security](#️-security-model) ·
+[AI use](#-ai-assisted-development) ·
 [Full guide](docs/GUIDE.md)
 
 </div>
@@ -64,6 +66,32 @@ The browser **never communicates directly with Proxmox VE** and never receives t
 The customer and administration portals run as **separate web servers** in the same process. They use separate session cookies and signing keys, and the customer-facing server does not expose administrator routes.
 
 > 📘 This README is the overview. Every setup step, permission, firewall rule and troubleshooting tip is in the **[administrator guide](docs/GUIDE.md)**.
+
+---
+
+## 🤖 AI-assisted development
+
+PVE Panel was built with substantial help from an AI assistant (**Claude by Anthropic**). To be transparent about what that means:
+
+**Created with AI assistance**
+
+- most of the source code (backend, customer and admin portals, scripts)
+- the Docker, Compose and GitHub Actions setup
+- the documentation, including this README's content and the [administrator guide](docs/GUIDE.md)
+- automated tests during development, largely against simulated Proxmox, guest-agent, SMTP and WireGuard environments and a certified test OpenID provider
+- the screenshots, taken from such a test environment with sample data
+
+**Done by the maintainer**
+
+- defining the requirements and deciding on features and design
+- running and testing the panel against a real Proxmox VE environment and reporting problems, which were then fixed
+- publishing, versioning and operating the project
+
+**What this means for you**
+
+- Not every feature has been tested in every real-world combination — especially provider-specific setups (OIDC providers, mail servers, NAS models, Windows editions).
+- AI-generated code can contain mistakes, including security-relevant ones. Review the code and the [security model](#️-security-model) before using PVE Panel in production, and validate customer isolation yourself (see [Recommended validation](#-recommended-validation)).
+- Issues and pull requests are reviewed and handled by the maintainer.
 
 ---
 
@@ -1215,6 +1243,8 @@ Never include API tokens, passwords, OIDC secrets or other credentials in an iss
 ## ⚠️ Project status
 
 PVE Panel directly controls virtualization, networking, guest provisioning and remote-access functionality.
+
+Large parts of the project were written with AI assistance (see [AI-assisted development](#-ai-assisted-development)).
 
 Before using it in a production or internet-facing environment:
 
