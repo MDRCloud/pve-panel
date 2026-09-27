@@ -41,6 +41,11 @@ const ACTION_LABELS = {
   admin_server_deleted: 'Deleted server (admin)',
   admin_user_delete_started: 'Started deleting customer',
   admin_user_delete_failed: 'Deleting customer failed',
+  admin_invite_sent: 'Sent invitation',
+  invite_accepted: 'Accepted invitation, password set',
+  admin_email_settings: 'Changed email settings',
+  admin_email_settings_removed: 'Removed email settings',
+  admin_email_test: 'Sent test email',
   twofa_enabled: 'Turned on two-factor authentication',
   twofa_disabled: 'Turned off two-factor authentication',
   twofa_recovery_codes: 'Created new recovery codes',
@@ -85,8 +90,10 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
       if (st.tab === 'servers') {
         [st.vms, st.users] = await Promise.all([api('/api/admin/vms'), api('/api/admin/users')]);
       } else if (st.tab === 'users') {
-        st.users = await api('/api/admin/users');
+        [st.users, st.email] = await Promise.all([api('/api/admin/users'), api('/api/admin/settings/email')]);
         if (!quiet) setTimeout(watchDeletions);
+      } else if (st.tab === 'settings') {
+        st.email = await api('/api/admin/settings/email');
       } else if (st.tab === 'about') {
         st.about = await api(`/api/admin/about${st.refreshAbout ? '?refresh=1' : ''}`);
         st.refreshAbout = false;
@@ -109,7 +116,7 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
 
   // ---- shell ------------------------------------------------------------
   function render() {
-    const tabs = [['servers', 'Servers'], ['users', 'Customers'], ['templates', 'Templates'], ['vpn', 'VPN'], ['activity', 'Activity'], ['account', 'Your account'], ['about', 'About']];
+    const tabs = [['servers', 'Servers'], ['users', 'Customers'], ['templates', 'Templates'], ['vpn', 'VPN'], ['activity', 'Activity'], ['account', 'Your account'], ['settings', 'Settings'], ['about', 'About']];
     root.innerHTML = `
       <div class="admin-inner">
         <h1>Administration</h1>
@@ -129,6 +136,7 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
     if (st.tab === 'activity') renderActivity();
     if (st.tab === 'account') renderSecurity(root.querySelector('#admin-body'), { email: getMe().email });
     if (st.tab === 'about') renderAbout();
+    if (st.tab === 'settings') renderSettings();
   }
 
   // ---- servers ----------------------------------------------------------
@@ -302,7 +310,17 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
   // ---- customers --------------------------------------------------------
   function renderUsers() {
     const me = getMe();
-    const note = st.newUser ? `
+    const note = st.newUser?.inviteError ? `
+      <div class="notice warn" role="status">
+        <p>Added <strong>${esc(st.newUser.email)}</strong>, but the invitation couldn't be sent:
+          ${esc(st.newUser.inviteError)}</p>
+        <p class="small">Fix the email settings, then use <strong>Resend invitation</strong> in the list below.</p>
+        <div class="row"><button class="btn ghost" data-dismiss-note>Dismiss</button></div>
+      </div>` : st.newUser?.invited ? `
+      <div class="notice" role="status">
+        <p>Added <strong>${esc(st.newUser.email)}</strong> and sent the invitation. The link is valid for 3 days.</p>
+        <div class="row"><button class="btn ghost" data-dismiss-note>Dismiss</button></div>
+      </div>` : st.newUser ? `
       <div class="notice" role="status">
         <p>Added <strong>${esc(st.newUser.email)}</strong>.
         ${st.newUser.password ? `Their password is <span class="mono selectable">${esc(st.newUser.password)}</span>. Copy it now and send it securely; it won't be shown again.` : ''}</p>
@@ -316,7 +334,7 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
       <h2 class="h2">Add a customer</h2>
       <form id="user-form" class="user-form" autocomplete="off">
         <label>Email <input name="email" type="email" required maxlength="254"></label>
-        <label>Password
+        <label id="pw-field">Password
           <span class="with-button">
             <input name="password" type="password" required minlength="12" maxlength="200" autocomplete="new-password">
             <button type="button" class="btn" data-generate>Generate</button>
@@ -326,6 +344,14 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
         <label class="check">
           <input type="checkbox" name="isAdmin">
           <span>Administrator <span class="muted">Can open this area and manage all customers and servers.</span></span>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="invite" ${st.email?.configured ? '' : 'disabled'}>
+          <span>Send an invitation email
+            <span class="muted">${st.email?.configured
+              ? 'The user gets an email with the panel address and a personal link to set their own password (valid 3 days). No password needed here.'
+              : 'Set up email in the Settings tab to invite users by email.'}</span>
+          </span>
         </label>
         <label class="check">
           <input type="checkbox" name="requireTotp">
@@ -343,7 +369,10 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
               const self = u.id === me.id;
               return `
               <tr data-user="${u.id}">
-                <td>${esc(u.email)}${self ? ' <span class="muted">(you)</span>' : ''}${u.ssoLinked ? ' <span class="tag" title="Linked to single sign-on">SSO</span>' : ''}</td>
+                <td>${esc(u.email)}${self ? ' <span class="muted">(you)</span>' : ''}${u.ssoLinked ? ' <span class="tag" title="Linked to single sign-on">SSO</span>' : ''}${
+                  u.invite?.status === 'pending' ? ` <span class="tag" title="Link valid until ${esc(new Date(u.invite.expires).toLocaleString())}">Invitation pending</span>`
+                  : u.invite?.status === 'expired' ? ' <span class="tag warn">Invitation expired</span>'
+                  : u.invite?.status === 'sent' ? ' <span class="tag">Invited</span>' : ''}</td>
                 <td>${u.isAdmin ? 'Administrator' : 'Customer'}</td>
                 <td>${u.totpEnabled
                   ? `<span class="pill pill-running">On</span>${u.totpRequired ? ' <span class="muted small">required</span>' : ''}`
@@ -361,6 +390,7 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
                   <span class="pill pill-failed" title="${esc(u.deletionError)}">Deletion failed</span>
                   <button class="btn danger" data-delete-user>Retry</button>` : `
                   <span class="pill pill-busy">Deleting…</span>`) : `
+                  ${u.invite && st.email?.configured ? '<button class="btn" data-resend-invite>Resend invitation</button>' : ''}
                   <button class="btn" data-limits>Limits</button>
                   <button class="btn" data-twofa>Sign-in</button>
                   <button class="btn" data-reset>Reset password</button>
@@ -501,15 +531,16 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
 
   async function createUser(form) {
     const email = form.email.value.trim();
-    const password = form.password.value;
+    const invite = form.invite.checked;
+    const password = invite ? undefined : form.password.value;
     const isAdmin = form.isAdmin.checked;
     const requireTotp = form.requireTotp.checked;
-    const generated = form.dataset.generated === password;
+    const generated = !invite && form.dataset.generated === password;
     const button = form.querySelector('.btn.primary');
     button.disabled = true;
     try {
-      await api('/api/admin/users', { method: 'POST', body: { email, password, isAdmin, requireTotp } });
-      st.newUser = { email, password: generated ? password : null };
+      const r = await api('/api/admin/users', { method: 'POST', body: { email, password, isAdmin, requireTotp, invite } });
+      st.newUser = { email, password: generated ? password : null, invited: r.invited, inviteError: r.inviteError };
       st.users = await api('/api/admin/users');
       renderUsers();
     } catch (err) {
@@ -725,6 +756,125 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
       ${tailscaleSection()}`;
   }
 
+  // ---- settings: email ----------------------------------------------------
+  function renderSettings() {
+    const e = st.email;
+    const me = getMe();
+    root.querySelector('#admin-body').innerHTML = `
+      <div class="settings">
+        <section class="security-card settings-card">
+          <div class="settings-head">
+            <h2 class="twofa-title">Email <span class="pill ${e.configured ? 'pill-running' : ''}">${e.configured ? 'Configured' : 'Not set up'}</span></h2>
+            <p class="muted">Used to send invitations to new users. Settings are stored in the panel's database; the
+              password is kept encrypted and never shown again.</p>
+          </div>
+          <form id="email-form" class="email-form" novalidate>
+            <div class="grid-3">
+              <label>SMTP server <input name="host" required value="${esc(e.host)}" placeholder="smtp.example.com" autocomplete="off"></label>
+              <label>Encryption
+                <select name="security">
+                  <option value="starttls" ${e.security === 'starttls' ? 'selected' : ''}>STARTTLS (587)</option>
+                  <option value="tls" ${e.security === 'tls' ? 'selected' : ''}>TLS (465)</option>
+                  <option value="none" ${e.security === 'none' ? 'selected' : ''}>None (internal relay only)</option>
+                </select>
+              </label>
+              <label>Port <input name="port" type="number" min="1" max="65535" required value="${esc(e.port)}"></label>
+            </div>
+            <div class="grid-2">
+              <label>Username <input name="username" value="${esc(e.username)}" autocomplete="off" placeholder="often the sender address"></label>
+              <label>Password
+                <input name="password" type="password" autocomplete="new-password" placeholder="${e.hasPassword ? 'Stored; leave empty to keep it' : ''}">
+                ${e.hasPassword ? '<span class="hint"><label class="inline-check"><input type="checkbox" name="clearPassword"> Remove the stored password</label></span>' : ''}
+              </label>
+            </div>
+            <div class="grid-2">
+              <label>Sender name <input name="fromName" value="${esc(e.fromName)}" maxlength="80"></label>
+              <label>Sender address <input name="fromAddress" type="email" required value="${esc(e.fromAddress)}" placeholder="panel@example.com"></label>
+            </div>
+            <label>Panel address for links
+              <input name="panelUrl" type="url" required value="${esc(e.panelUrl)}" placeholder="https://panel.example.com">
+              <span class="hint">The customer panel's address as users open it; invitation links point there.</span>
+            </label>
+            <p id="email-warning" class="form-error" role="alert"></p>
+            <div class="row">
+              <button class="btn primary">Save</button>
+              ${e.configured ? '<button type="button" class="btn danger" data-email-remove>Remove email settings</button>' : ''}
+              ${e.updatedAt ? `<span class="muted small">Last changed ${esc(new Date(`${e.updatedAt.replace(' ', 'T')}Z`).toLocaleString())}</span>` : ''}
+            </div>
+          </form>
+        </section>
+
+        <section class="security-card settings-card" ${e.configured ? '' : 'hidden'}>
+          <div class="settings-head">
+            <h2 class="twofa-title">Send a test email</h2>
+            <p class="muted">Checks the settings end to end: connection, encryption, sign-in and delivery.</p>
+          </div>
+          <form id="email-test" class="vpn-form" novalidate>
+            <label>Send to <input name="to" type="email" required value="${esc(me.email)}"></label>
+            <button class="btn">Send test email</button>
+          </form>
+        </section>
+      </div>`;
+    warnPlain();
+  }
+
+  // Plain SMTP with a password sends that password unencrypted
+  function warnPlain() {
+    const f = root.querySelector('#email-form');
+    if (!f) return;
+    root.querySelector('#email-warning').textContent = f.security.value === 'none' && f.username.value
+      ? 'Without encryption the SMTP password travels unencrypted. Use this only for a mail relay inside your own network.'
+      : '';
+  }
+
+  root.addEventListener('input', (ev) => { if (ev.target.closest('#email-form')) warnPlain(); });
+  root.addEventListener('change', (ev) => {
+    const f = ev.target.closest('#email-form');
+    if (!f || ev.target.name !== 'security') return;
+    // suggest the usual port when it's still one of the defaults
+    const usual = { starttls: 587, tls: 465, none: 25 };
+    if ([587, 465, 25].includes(Number(f.port.value))) f.port.value = usual[f.security.value];
+    warnPlain();
+  });
+
+  root.addEventListener('submit', async (ev) => {
+    if (ev.target.id === 'email-form') {
+      ev.preventDefault();
+      const f = ev.target;
+      if (!f.reportValidity()) return;
+      const body = {
+        host: f.host.value.trim(),
+        port: Number(f.port.value),
+        security: f.security.value,
+        username: f.username.value.trim(),
+        fromName: f.fromName.value.trim(),
+        fromAddress: f.fromAddress.value.trim(),
+        panelUrl: f.panelUrl.value.trim(),
+      };
+      if (f.clearPassword?.checked) body.password = '';
+      else if (f.password.value) body.password = f.password.value;
+      try {
+        st.email = await api('/api/admin/settings/email', { method: 'PUT', body });
+        toast('Email settings saved');
+        renderSettings();
+      } catch (err) { fail(err); }
+    }
+    if (ev.target.id === 'email-test') {
+      ev.preventDefault();
+      const f = ev.target;
+      if (!f.reportValidity()) return;
+      const b = f.querySelector('button');
+      b.disabled = true;
+      b.textContent = 'Sending…';
+      try {
+        await api('/api/admin/settings/email/test', { method: 'POST', body: { to: f.to.value.trim() } });
+        toast(`Test email sent to ${f.to.value.trim()}`);
+      } catch (err) { fail(err); }
+      b.disabled = false;
+      b.textContent = 'Send test email';
+    }
+  });
+
   // ---- about --------------------------------------------------------------
   function renderAbout() {
     const a = st.about;
@@ -827,6 +977,18 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
       return;
     }
 
+    if (t.hasAttribute('data-resend-invite')) {
+      const u = st.users.find((x) => x.id === Number(t.closest('[data-user]').dataset.user));
+      t.disabled = true;
+      try {
+        await api(`/api/admin/users/${u.id}/invite`, { method: 'POST' });
+        toast(`Invitation sent to ${u.email}. Earlier links no longer work.`);
+        st.users = await api('/api/admin/users');
+        renderUsers();
+      } catch (err) { fail(err); t.disabled = false; }
+      return;
+    }
+
     if (t.hasAttribute('data-generate')) {
       const form = t.closest('form');
       const pw = generatePassword();
@@ -859,6 +1021,17 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
 
     if (t.hasAttribute('data-refresh-audit')) {
       load();
+      return;
+    }
+
+    if (t.hasAttribute('data-email-remove')) {
+      if (!(await confirmAction('Remove the email settings? Invitations can no longer be sent until email is set up again.', 'Remove'))) return;
+      try {
+        await api('/api/admin/settings/email', { method: 'DELETE' });
+        st.email = await api('/api/admin/settings/email');
+        toast('Email settings removed');
+        renderSettings();
+      } catch (err) { fail(err); }
       return;
     }
 
@@ -954,6 +1127,14 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
   });
 
   root.addEventListener('change', (e) => {
+    if (e.target.name === 'invite' && e.target.closest('#user-form')) {
+      const form = e.target.closest('#user-form');
+      const on = e.target.checked;
+      form.querySelector('#pw-field').hidden = on;
+      form.password.required = !on;
+      form.password.disabled = on;
+      return;
+    }
     const row = e.target.closest('tr[data-vmid]');
     if (row && (e.target.matches('[data-owner]') || e.target.matches('[data-label]'))) saveAssignment(row);
   });

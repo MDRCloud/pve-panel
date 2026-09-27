@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { db, audit } from './db.js';
 import * as totp from './totp.js';
 import * as oidc from './oidc.js';
+import { checkInvitation, acceptInvitation } from './invite.js';
 
 const SESSION_HOURS = 8;
 // Compared against when the email is unknown, so response time
@@ -158,6 +159,26 @@ async function authPlugin(app, { scope }) {
       .setCookie(cookieName, token, cookieOpts(SESSION_HOURS * 3600))
       .send({ ...me(user), recoveryCodes: codes });
   });
+
+  // ---- Invitations: set your own password (customer portal) -------------------
+  if (!adminOnly) {
+    const tokenBody = { type: 'string', minLength: 40, maxLength: 60, pattern: '^[A-Za-z0-9_-]+$' };
+    app.post('/api/invite/check', {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      schema: { body: { type: 'object', required: ['token'], properties: { token: tokenBody } } },
+    }, async (req) => checkInvitation(req.body.token));
+
+    app.post('/api/invite/accept', {
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      schema: {
+        body: {
+          type: 'object',
+          required: ['token', 'password'],
+          properties: { token: tokenBody, password: { type: 'string', minLength: 12, maxLength: 200 } },
+        },
+      },
+    }, async (req) => acceptInvitation(req, req.body.token, req.body.password));
+  }
 
   // ---- Sign-in options + OIDC ---------------------------------------------------
   const ssoHere = oidc.oidcEnabledFor(scope);

@@ -99,6 +99,7 @@ The customer and administration portals run as **separate web servers** in the s
 - Monitor WireGuard and Tailscale usage
 - Delete customers together with their owned infrastructure
 - See the running version and whether an update is available
+- Configure email (SMTP) in the admin portal and invite users by email
 
 ### Provisioning
 
@@ -640,6 +641,40 @@ Once SSO is validated, local password login can optionally be disabled independe
 
 ---
 
+## ✉️ Email & invitations
+
+Email is configured in the **admin portal → Settings**, not in `.env`:
+
+- SMTP server, port and encryption (**TLS**, **STARTTLS** or none for an internal relay)
+- username and password — the password is stored **encrypted** and never shown again
+- sender name and address
+- the panel address used in links
+- a **Send test email** button to verify everything end to end
+
+Once email works, **Add a customer** offers **Send an invitation email**. Instead of a password chosen by the admin, the user receives:
+
+- the panel address and their sign-in email
+- a personal link to **set their own password**
+- a note when 2FA is required or single sign-on is used
+
+```text
+Admin adds user ──► Invitation email ──► User opens link ──► Sets password ──► Signs in
+                                          (single-use, 3 days)
+```
+
+Invitation links:
+
+- work **once** and expire after **3 days**
+- are stored only as a SHA-256 hash
+- carry the token after `#`, so it never reaches server logs or `Referer` headers
+- are replaced by **Resend invitation** (the old link stops working)
+
+The customer list shows *Invitation pending* or *Invitation expired* until the user has set a password.
+
+> Changing `JWT_SECRET` makes the stored SMTP password unreadable — enter it again in Settings afterwards.
+
+---
+
 ## 🪟 Windows templates
 
 Windows systems can be deployed without cloud-init.
@@ -986,6 +1021,9 @@ Only these file names are served, with a strict sandbox policy. Make sure you're
 │   ├── vpn.js
 │   ├── agent.js
 │   ├── version.js
+│   ├── mail.js
+│   ├── invite.js
+│   ├── secrets.js
 │   └── routes/
 │       ├── vms.js
 │       ├── console.js
@@ -1047,6 +1085,7 @@ Only these file names are served, with a strict sandbox policy. Make sure you're
 | `DELETE` | `/api/vpn/devices/:id` | Remove VPN device |
 | `GET/POST/DELETE` | `/api/vms/:vmid/tailscale` | Manage Tailscale |
 | `GET/POST` | `/api/account/2fa/...` | Manage 2FA |
+| `POST` | `/api/invite/check`, `/api/invite/accept` | Invitation link: check it, set the password |
 
 The administrator API is available only through the administrator server and an authenticated admin session. `GET /healthz` reports liveness for Docker and monitoring.
 

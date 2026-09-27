@@ -1248,6 +1248,81 @@ async function startApp(me) {
   }, 5_000);
 }
 
-api('/api/auth/me').then(startApp).catch((err) => {
-  if (!(err instanceof SignedOut)) showLogin();
-});
+// ---------- invitation link (#invite=<token>) --------------------------------
+// The token is after "#", so it never reaches the server's logs; it's sent in
+// the request body and removed from the address bar right away.
+async function showInvitation(token) {
+  history.replaceState(null, '', location.pathname);
+  $('#app-view').hidden = true;
+  $('#login-view').hidden = false;
+  $('#login-form').hidden = true;
+  const box = $('#login-2fa');
+  box.hidden = false;
+  box.innerHTML = '<p class="muted">Checking your invitation…</p>';
+
+  let check;
+  try { check = await api('/api/invite/check', { method: 'POST', body: { token } }); } catch { check = { valid: false }; }
+  if (!check.valid) {
+    box.innerHTML = `
+      <div class="twofa">
+        <h2 class="twofa-title">${check.reason === 'expired' ? 'This invitation has expired' : 'This link is not valid'}</h2>
+        <p class="muted">${check.reason === 'expired'
+          ? 'Invitation links work for 3 days. Ask your provider to send a new one.'
+          : 'It may have been used already or replaced by a newer invitation. Ask your provider for a new one, or sign in if you have already set your password.'}</p>
+        <button class="btn primary wide" data-to-signin>Go to sign-in</button>
+      </div>`;
+    box.querySelector('[data-to-signin]').onclick = () => showLogin();
+    return;
+  }
+
+  box.innerHTML = `
+    <form class="twofa" id="invite-form" novalidate>
+      <h2 class="twofa-title">Set your password</h2>
+      <p class="muted">Welcome! Choose a password for <strong>${esc(check.email)}</strong>. You'll use it with this email to sign in.</p>
+      <input type="email" name="username" value="${esc(check.email)}" autocomplete="username" hidden>
+      <label>New password
+        <input name="password" type="password" required minlength="12" maxlength="200" autocomplete="new-password">
+        <span class="hint">At least 12 characters. A passphrase of several words works well.</span>
+      </label>
+      <label>Repeat the password
+        <input name="password2" type="password" required minlength="12" maxlength="200" autocomplete="new-password">
+      </label>
+      ${check.requireTotp ? '<p class="muted small">At your first sign-in you\'ll also set up two-factor authentication with an authenticator app.</p>' : ''}
+      <p class="form-error" role="alert"></p>
+      <button class="btn primary wide">Set password</button>
+    </form>`;
+  const form = box.querySelector('#invite-form');
+  form.password.focus();
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const err = form.querySelector('.form-error');
+    err.textContent = '';
+    if (!form.reportValidity()) return;
+    if (form.password.value !== form.password2.value) {
+      err.textContent = "The two passwords don't match.";
+      return;
+    }
+    const b = form.querySelector('.btn.primary');
+    b.disabled = true;
+    try {
+      const r = await api('/api/invite/accept', { method: 'POST', body: { token, password: form.password.value } });
+      showLogin();
+      $('#login-form [name=email]').value = r.email;
+      $('#login-form [name=password]').focus();
+      $('#login-error').textContent = '';
+      toast('Your password is set. Sign in now.');
+    } catch (ex) {
+      err.textContent = ex.message;
+      b.disabled = false;
+    }
+  };
+}
+
+const inviteToken = /^#invite=([A-Za-z0-9_-]{40,60})$/.exec(location.hash)?.[1];
+if (inviteToken) {
+  showInvitation(inviteToken);
+} else {
+  api('/api/auth/me').then(startApp).catch((err) => {
+    if (!(err instanceof SignedOut)) showLogin();
+  });
+}

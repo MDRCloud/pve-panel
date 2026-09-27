@@ -145,6 +145,22 @@ addColumn('users', 'deletion_error', 'TEXT');
 // the network map can show the right OS glyph without reading every config.
 addColumn('vms', 'ostype', 'TEXT');
 
+// Settings changed in the admin interface (e.g. email), as JSON per key
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+// Invitations: the user sets their own password through a one-time link.
+// Only a SHA-256 hash of the token is stored.
+addColumn('users', 'password_set', 'INTEGER NOT NULL DEFAULT 1');
+addColumn('users', 'invite_token_hash', 'TEXT');
+addColumn('users', 'invite_expires', 'TEXT');
+addColumn('users', 'invited_at', 'TEXT');
+
 // Background jobs don't survive a restart; don't leave servers stuck forever.
 db.exec(`
   UPDATE vms SET state = 'failed', error = 'Setup was interrupted because the panel restarted'

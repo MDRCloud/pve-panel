@@ -5,6 +5,10 @@ import { startCustomerDeletion, deletionPlan, destroyServer, isProtected } from 
 import { tailscaleOverview } from '../tailscale.js';
 import * as totp from '../totp.js';
 import { versionInfo, updateStatus } from '../version.js';
+import {
+  emailSettings, emailConfigured, saveEmailSettings, deleteEmailSettings, sendMail, testMessage,
+} from '../mail.js';
+import { sendInvitation, unusablePassword, inviteState } from '../invite.js';
 import { usageOf } from '../provision.js';
 import { networkOf, allNetworks } from '../network.js';
 import { adminOverview, removeDevice, syncGateway } from '../vpn.js';
@@ -29,6 +33,7 @@ export default async function adminRoutes(app) {
              u.deleting, u.deletion_error AS deletionError,
              u.totp_enabled AS totpEnabled, u.totp_required AS totpRequired,
              u.oidc_issuer AS ssoIssuer, u.oidc_subject IS NOT NULL AS ssoLinked,
+             u.password_set, u.invite_token_hash, u.invite_expires, u.invited_at,
              COUNT(v.vmid) AS servers
       FROM users u LEFT JOIN vms v ON v.user_id = u.id
       GROUP BY u.id ORDER BY u.email
@@ -41,6 +46,8 @@ export default async function adminRoutes(app) {
       totpEnabled: !!u.totpEnabled,
       totpRequired: !!u.totpRequired,
       ssoLinked: !!u.ssoLinked,
+      invite: inviteState(u),
+      password_set: undefined, invite_token_hash: undefined, invite_expires: undefined, invited_at: undefined,
       usage: u.canCreate ? await usageOf(u.id).catch(() => null) : null,
       network: networkOf(u.id),
     })));
@@ -50,27 +57,91 @@ export default async function adminRoutes(app) {
     schema: {
       body: {
         type: 'object',
-        required: ['email', 'password'],
+        required: ['email'],
         properties: {
           email: { type: 'string', format: 'email', maxLength: 254 },
           password: PASSWORD,
           isAdmin: { type: 'boolean' },
           requireTotp: { type: 'boolean' },
+          invite: { type: 'boolean' },
         },
       },
     },
   }, async (req, reply) => {
-    const { email, password, isAdmin = false, requireTotp = false } = req.body;
+    const { email, password, isAdmin = false, requireTotp = false, invite = false } = req.body;
     const clean = email.trim();
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(clean)) {
       return reply.code(409).send({ error: 'A user with this email already exists' });
     }
-    const hash = await bcrypt.hash(password, 12);
-    const { lastInsertRowid } = db
-      .prepare('INSERT INTO users (email, password_hash, is_admin, totp_required) VALUES (?, ?, ?, ?)')
-      .run(clean, hash, isAdmin ? 1 : 0, requireTotp ? 1 : 0);
-    audit(req, null, 'admin_user_create', { email: clean, isAdmin, requireTotp });
-    return reply.code(201).send({ id: Number(lastInsertRowid), email: clean, isAdmin });
+    if (invite && !emailConfigured()) {
+      return badRequest(reply, 'Email is not configured yet (Settings tab), so no invitation can be sent');
+    }
+    if (!invite && !password) return badRequest(reply, 'Set a password, or send an invitation email instead');
+
+    // Invited users choose their own password through the link.
+    const hash = invite ? unusablePassword() : await bcrypt.hash(password, 12);
+    const { lastInsertRowid } = db.prepare(
+      'INSERT INTO users (email, password_hash, is_admin, totp_required, password_set) VALUES (?, ?, ?, ?, ?)',
+    ).run(clean, hash, isAdmin ? 1 : 0, requireTotp ? 1 : 0, invite ? 0 : 1);
+    const id = Number(lastInsertRowid);
+    audit(req, null, 'admin_user_create', { email: clean, isAdmin, requireTotp, invite });
+
+    let inviteError = null;
+    if (invite) {
+      try { await sendInvitation(req, id); } catch (err) { inviteError = err.message; }
+    }
+    // The account exists either way; a failed invitation can be resent from the list.
+    return reply.code(201).send({ id, email: clean, isAdmin, invited: invite && !inviteError, inviteError });
+  });
+
+  app.post('/api/admin/users/:id/invite', {
+    config: { rateLimit: { max: 20, timeWindow: '10 minutes' } },
+  }, async (req, reply) => {
+    if (!emailConfigured()) return badRequest(reply, 'Email is not configured yet (Settings tab)');
+    await sendInvitation(req, Number(req.params.id));
+    return { sent: true };
+  });
+
+  // ---- Settings: email ----------------------------------------------------------
+  app.get('/api/admin/settings/email', async () => emailSettings());
+
+  app.put('/api/admin/settings/email', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['host', 'port', 'security', 'fromAddress', 'panelUrl'],
+        additionalProperties: false,
+        properties: {
+          host: { type: 'string', minLength: 1, maxLength: 253, pattern: '^[A-Za-z0-9.-]+$' },
+          port: { type: 'integer', minimum: 1, maximum: 65535 },
+          security: { type: 'string', enum: ['tls', 'starttls', 'none'] },
+          username: { type: 'string', maxLength: 254 },
+          password: { type: 'string', maxLength: 500 },
+          fromName: { type: 'string', maxLength: 80 },
+          fromAddress: { type: 'string', format: 'email', maxLength: 254 },
+          panelUrl: { type: 'string', maxLength: 300, pattern: '^https?://[^\\s/]+' },
+        },
+      },
+    },
+  }, async (req) => {
+    saveEmailSettings(req.body);
+    audit(req, null, 'admin_email_settings', { host: req.body.host, port: req.body.port, security: req.body.security });
+    return emailSettings();
+  });
+
+  app.delete('/api/admin/settings/email', async (req, reply) => {
+    deleteEmailSettings();
+    audit(req, null, 'admin_email_settings_removed');
+    return reply.code(204).send();
+  });
+
+  app.post('/api/admin/settings/email/test', {
+    config: { rateLimit: { max: 10, timeWindow: '10 minutes' } },
+    schema: { body: { type: 'object', required: ['to'], properties: { to: { type: 'string', format: 'email', maxLength: 254 } } } },
+  }, async (req) => {
+    await sendMail({ to: req.body.to, ...testMessage(req.body.to) });
+    audit(req, null, 'admin_email_test', { to: req.body.to });
+    return { sent: true };
   });
 
   // Reset password and/or change admin rights
@@ -105,7 +176,8 @@ export default async function adminRoutes(app) {
     }
     if (password) {
       const hash = await bcrypt.hash(password, 12);
-      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
+      db.prepare(`UPDATE users SET password_hash = ?, password_set = 1, invite_token_hash = NULL, invite_expires = NULL
+                  WHERE id = ?`).run(hash, id);
       audit(req, null, 'admin_password_reset', { email: user.email });
     }
     if (typeof isAdmin === 'boolean') {

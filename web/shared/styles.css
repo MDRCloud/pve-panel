@@ -629,6 +629,15 @@ dialog#twofa-admin { max-width: min(540px, calc(100vw - 32px)); }
 .account-btn:hover { background: var(--side-hover); color: var(--side-ink); }
 .account-btn .account { color: inherit; }
 
+/* Settings */
+.settings { display: grid; gap: 16px; max-width: 880px; }
+.settings-card { display: grid; gap: 16px; }
+.settings-head { display: grid; gap: 6px; }
+.settings-head p { margin: 0; }
+.email-form { display: grid; gap: 14px; }
+.inline-check { display: inline-flex; gap: 6px; align-items: center; font-weight: 400; }
+.inline-check input { width: auto; }
+
 /* Version / About */
 .side-foot { flex-wrap: wrap; }
 .side-foot .account-btn { flex: 1 1 0; min-width: 0; }

@@ -1,0 +1,187 @@
+// Email (SMTP), configured in the admin interface and stored in the database.
+// The SMTP password is encrypted at rest and never sent back to the browser.
+
+import nodemailer from 'nodemailer';
+import { db } from './db.js';
+import { config } from './config.js';
+import { seal, open } from './secrets.js';
+
+const KEY = 'email';
+const PURPOSE = 'smtp-password';
+
+const read = () => {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(KEY);
+  return row ? JSON.parse(row.value) : null;
+};
+
+/** Settings as shown in the admin interface (no password). */
+export function emailSettings() {
+  const s = read();
+  return {
+    configured: !!(s?.host && s?.fromAddress && s?.panelUrl),
+    host: s?.host ?? '',
+    port: s?.port ?? 587,
+    security: s?.security ?? 'starttls',      // tls | starttls | none
+    username: s?.username ?? '',
+    hasPassword: !!s?.password,
+    fromName: s?.fromName ?? config.brand.name,
+    fromAddress: s?.fromAddress ?? '',
+    panelUrl: s?.panelUrl ?? config.oidc.publicUrl.customer ?? '',
+    updatedAt: db.prepare('SELECT updated_at FROM settings WHERE key = ?').get(KEY)?.updated_at ?? null,
+  };
+}
+
+export const emailConfigured = () => emailSettings().configured;
+
+/**
+ * Saves settings. `password`: undefined = keep the stored one, '' = remove it,
+ * anything else = store (encrypted).
+ */
+export function saveEmailSettings(input) {
+  const current = read() ?? {};
+  const next = {
+    host: input.host.trim(),
+    port: input.port,
+    security: input.security,
+    username: (input.username ?? '').trim(),
+    fromName: (input.fromName ?? '').trim(),
+    fromAddress: input.fromAddress.trim(),
+    panelUrl: input.panelUrl.trim().replace(/\/+$/, ''),
+    password: input.password === undefined ? current.password
+      : input.password === '' ? null
+      : seal(PURPOSE, input.password),
+  };
+  db.prepare(`
+    INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).run(KEY, JSON.stringify(next));
+  transport = null; // rebuilt with the new settings
+}
+
+export function deleteEmailSettings() {
+  db.prepare('DELETE FROM settings WHERE key = ?').run(KEY);
+  transport = null;
+}
+
+let transport = null;
+function getTransport() {
+  if (transport) return transport;
+  const s = read();
+  if (!s?.host) throw Object.assign(new Error('Email is not configured'), { statusCode: 409, expose: true });
+  let pass;
+  if (s.password) {
+    try { pass = open(PURPOSE, s.password); } catch {
+      throw Object.assign(new Error('The stored SMTP password can no longer be read (JWT_SECRET changed?). Enter it again.'),
+        { statusCode: 409, expose: true });
+    }
+  }
+  transport = nodemailer.createTransport({
+    host: s.host,
+    port: s.port,
+    secure: s.security === 'tls',             // TLS from the first byte (usually 465)
+    requireTLS: s.security === 'starttls',    // refuse to continue without STARTTLS (usually 587)
+    ignoreTLS: s.security === 'none',
+    auth: s.username ? { user: s.username, pass } : undefined,
+    tls: { minVersion: 'TLSv1.2' },           // certificates are always verified
+    connectionTimeout: 15_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 30_000,
+  });
+  return transport;
+}
+
+function sender() {
+  const s = read();
+  const name = (s.fromName || config.brand.name).replace(/["\r\n]/g, '');
+  return `"${name}" <${s.fromAddress}>`;
+}
+
+/** Sends a message; throws with a readable reason when the server refuses. */
+export async function sendMail({ to, subject, text, html }) {
+  try {
+    const info = await getTransport().sendMail({ from: sender(), to, subject, text, html });
+    return { messageId: info.messageId };
+  } catch (err) {
+    if (err.expose) throw err;
+    const reason = err.response || err.message || String(err);
+    throw Object.assign(new Error(`Sending the email failed: ${reason}`), { statusCode: 502, expose: true });
+  }
+}
+
+// ---- Messages -----------------------------------------------------------------------
+
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function layout({ title, paragraphs, button, footer }) {
+  const brand = esc(config.brand.name);
+  return `<!doctype html><html><body style="margin:0;background:#eef2f6;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#172230">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f6;padding:32px 12px"><tr><td align="center">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #d9e0e8">
+<tr><td style="background:#172230;color:#e6ecf3;padding:18px 28px;border-radius:14px 14px 0 0;font-size:17px;font-weight:700">${brand}</td></tr>
+<tr><td style="padding:28px">
+<h1 style="margin:0 0 16px;font-size:22px">${esc(title)}</h1>
+${paragraphs.map((p) => `<p style="margin:0 0 14px;font-size:15px;line-height:1.55">${p}</p>`).join('\n')}
+${button ? `<p style="margin:22px 0"><a href="${esc(button.href)}" style="background:#3558e6;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;display:inline-block">${esc(button.label)}</a></p>
+<p style="margin:0 0 14px;font-size:13px;color:#5a6878">If the button doesn't work, copy this address into your browser:<br><span style="word-break:break-all">${esc(button.href)}</span></p>` : ''}
+${footer ? `<p style="margin:22px 0 0;font-size:13px;color:#5a6878">${footer}</p>` : ''}
+</td></tr></table></td></tr></table></body></html>`;
+}
+
+/**
+ * The invitation: panel address, sign-in email, and either the one-time link to
+ * set a password or, with single sign-on only, how to sign in.
+ */
+export function invitationMessage({ email, link, expiresHours, requireTotp, sso, passwordLogin, isAdmin }) {
+  const s = emailSettings();
+  const brand = config.brand.name;
+  const panel = s.panelUrl;
+  const steps = [];
+  const text = [];
+
+  const intro = `You now have access to ${brand}${isAdmin ? ' as an administrator' : ''}, where you can manage your servers.`;
+  text.push('Hello,', '', intro, '', `Panel: ${panel}`, `Your sign-in email: ${email}`, '');
+  steps.push(esc(intro));
+  steps.push(`<strong>Panel:</strong> <a href="${esc(panel)}">${esc(panel)}</a><br><strong>Your sign-in email:</strong> ${esc(email)}`);
+
+  if (passwordLogin && link) {
+    const days = Math.round(expiresHours / 24);
+    const line = `To get started, set your password with this personal link. It works once and expires in ${days} day${days === 1 ? '' : 's'}.`;
+    text.push(line, link, '');
+    steps.push(esc(line));
+  }
+  if (sso) {
+    const line = passwordLogin
+      ? `You can also sign in with "${sso}".`
+      : `Sign in with "${sso}" on the panel, using your usual company account.`;
+    text.push(line, '');
+    steps.push(esc(line));
+  }
+  if (requireTotp) {
+    const line = 'At your first sign-in you set up two-factor authentication: have an authenticator app (for example Google or Microsoft Authenticator) ready on your phone.';
+    text.push(line, '');
+    steps.push(esc(line));
+  }
+  const footer = "If you didn't expect this email, you can ignore it; nothing happens without the link.";
+  text.push(footer);
+
+  return {
+    subject: `Your access to ${brand}`,
+    text: text.join('\n'),
+    html: layout({
+      title: `Welcome to ${brand}`,
+      paragraphs: steps,
+      button: passwordLogin && link ? { href: link, label: 'Set your password' } : { href: panel, label: `Open ${brand}` },
+      footer: esc(footer),
+    }),
+  };
+}
+
+export function testMessage(to) {
+  const brand = config.brand.name;
+  const line = `This is a test from ${brand}. Email sending works.`;
+  return {
+    subject: `${brand}: test email`,
+    text: `${line}\n\nSent to ${to}.`,
+    html: layout({ title: 'Email works', paragraphs: [esc(line)] }),
+  };
+}
