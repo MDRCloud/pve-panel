@@ -1,0 +1,52 @@
+# Start:   docker compose up -d --build
+# With automatic HTTPS (Caddy + Let's Encrypt):
+#          docker compose --profile https up -d --build
+# See README "Running with Docker".
+
+services:
+  panel:
+    build: .
+    image: pve-panel:latest
+    init: true                     # proper signal handling / zombie reaping
+    restart: unless-stopped
+    env_file: .env
+    environment:                   # container-specific values override .env
+      HOST: 0.0.0.0
+      ADMIN_HOST: 0.0.0.0
+      DB_PATH: /app/data/panel.db
+    ports:
+      # Customer panel. With the "https" profile Caddy publishes it instead; you
+      # can then remove this line so the panel is only reachable through Caddy.
+      - "3000:3000"
+      # Admin interface: ONLY on the Docker host itself (use an SSH tunnel).
+      - "127.0.0.1:3001:3001"
+      # Alternative: reachable in your LAN on the NAS's address (replace the line
+      # above; set the NAS IP, and keep this port closed on your router):
+      # - "192.168.1.20:3001:3001"
+    volumes:
+      - panel-data:/app/data
+      # Proxmox CA certificate, if you use PVE_CA_FILE=/app/certs/pve-root-ca.pem
+      # - ./pve-root-ca.pem:/app/certs/pve-root-ca.pem:ro
+
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on:
+      panel:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PANEL_DOMAIN: ${PANEL_DOMAIN:?set PANEL_DOMAIN in .env, e.g. panel.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data             # certificates
+      - caddy-config:/config
+
+volumes:
+  panel-data:
+  caddy-data:
+  caddy-config:

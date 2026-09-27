@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Administration – Server panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/shared/styles.css">
+  <script type="module" src="/main.js"></script>
+</head>
+<body class="admin-page">
+  <main id="login-view" class="login admin-login" hidden>
+    <form id="login-form" class="login-box" novalidate>
+      <div class="login-brand" style="color:var(--ink)"><span data-brand-mark></span><span data-brand></span></div>
+      <h1>Administration</h1>
+      <label>Email
+        <input name="email" type="email" autocomplete="username" required>
+      </label>
+      <label>Password
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <p id="login-error" class="form-error" role="alert"></p>
+      <button type="submit" class="btn primary">Sign in</button>
+    </form>
+    <div id="login-2fa" class="login-box" hidden></div>
+  </main>
+
+  <div id="app-view" class="shell admin-shell" hidden>
+    <header class="topbar">
+      <span class="brand"><span data-brand-mark></span><span data-brand></span></span>
+      <span class="admin-badge">Administration</span>
+      <span class="spacer"></span>
+      <span id="account-email" class="muted"></span>
+      <button id="logout" class="btn ghost">Sign out</button>
+    </header>
+    <main id="admin-view" class="admin"></main>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <dialog id="confirm">
+    <form method="dialog">
+      <p id="confirm-text"></p>
+      <div class="row end">
+        <button value="cancel" class="btn ghost">Cancel</button>
+        <button value="ok" id="confirm-ok" class="btn danger">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="prompt">
+    <form method="dialog">
+      <label>
+        <span id="prompt-text"></span>
+        <input id="prompt-input" autocomplete="off">
+      </label>
+      <p id="prompt-hint" class="muted small"></p>
+      <div class="row end">
+        <button value="cancel" class="btn ghost" formnovalidate>Cancel</button>
+        <button value="ok" id="prompt-ok" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="limits">
+    <form method="dialog" id="limits-form" class="limits-form">
+      <h2 id="limits-title" class="h2"></h2>
+      <label class="check">
+        <input type="checkbox" name="canCreate">
+        <span>Can create servers
+          <span class="muted">Lets this customer create and delete their own servers from the offered templates, within the limits below. The limits count all their servers, including ones you assigned.</span>
+        </span>
+      </label>
+      <div class="grid-2">
+        <label>Servers <input name="maxServers" type="number" min="0" max="1000" required></label>
+        <label>CPU cores <input name="maxCores" type="number" min="0" max="10000" required></label>
+        <label>Memory (GB) <input name="maxMemoryGb" type="number" min="0" step="0.5" required></label>
+        <label>Disk (GB) <input name="maxDiskGb" type="number" min="0" required></label>
+      </div>
+      <p id="limits-usage" class="muted small"></p>
+      <div class="row end">
+        <button value="cancel" class="btn ghost" formnovalidate>Cancel</button>
+        <button value="ok" class="btn primary">Save limits</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="delete-user">
+    <form method="dialog" id="delete-user-form" class="limits-form">
+      <h2 id="du-title" class="h2"></h2>
+      <div id="du-plan"></div>
+      <label class="check" id="du-keep-wrap">
+        <input type="checkbox" name="keepAssigned">
+        <span>Keep the servers you assigned
+          <span class="muted">They are only unassigned and keep running. Servers the customer created are always deleted.</span>
+        </span>
+      </label>
+      <label class="check" id="du-keepnet-wrap">
+        <input type="checkbox" name="keepNetwork">
+        <span>Keep the private network
+          <span class="muted">The VNet stays in Proxmox for the servers listed above. You can remove it later in
+            Proxmox (Datacenter, SDN) once nothing uses it.</span>
+        </span>
+      </label>
+      <label>Type the customer's email to confirm
+        <input name="confirm" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row end">
+        <button value="cancel" class="btn ghost" formnovalidate>Cancel</button>
+        <button value="ok" id="du-ok" class="btn danger" disabled>Delete customer</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="twofa-admin">
+    <form method="dialog" id="twofa-admin-form" class="limits-form">
+      <h2 id="ta-title" class="h2"></h2>
+      <h3 class="small-head">Two-factor authentication</h3>
+      <p id="ta-state"></p>
+      <label class="check">
+        <input type="checkbox" name="required">
+        <span>Require two-factor authentication
+          <span class="muted">If it isn't set up yet, the user has to set it up at the next sign-in before doing anything else.</span>
+        </span>
+      </label>
+      <div id="ta-sso-box" class="reset-box">
+        <p class="small muted">Linked to single sign-on (<span id="ta-sso-issuer" class="mono"></span>). Unlink if the
+          person's identity at the provider changed; the next sign-on links again by verified email.</p>
+        <button type="button" class="btn" id="ta-unlink">Unlink single sign-on</button>
+      </div>
+      <div id="ta-reset-box" class="reset-box">
+        <p class="small muted">Lost phone and recovery codes? Resetting removes two-factor authentication from the
+          account. If it's required, the user sets it up again at the next sign-in. Only do this after
+          confirming who is asking.</p>
+        <button type="button" class="btn danger" id="ta-reset">Reset two-factor authentication</button>
+      </div>
+      <div class="row end">
+        <button value="cancel" class="btn ghost" formnovalidate>Cancel</button>
+        <button value="ok" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

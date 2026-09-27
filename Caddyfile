@@ -1,0 +1,7 @@
+# HTTPS in front of the customer panel. Caddy obtains and renews a Let's Encrypt
+# certificate for PANEL_DOMAIN automatically (ports 80 and 443 must reach this
+# host, and the DNS name must point to it). WebSockets (console) pass through.
+{$PANEL_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy panel:3000
+}

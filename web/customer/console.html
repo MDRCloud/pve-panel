@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Console</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/shared/styles.css">
+  <link rel="stylesheet" href="/console.css">
+  <script type="module" src="/console.js"></script>
+</head>
+<body class="console-page">
+  <header class="console-bar">
+    <span class="led" id="console-led"></span>
+    <span id="console-title">Connecting…</span>
+    <span class="spacer"></span>
+    <button class="btn" id="cad" disabled>Send Ctrl+Alt+Del</button>
+    <button class="btn" id="paste" disabled>Type clipboard</button>
+    <button class="btn" id="fullscreen">Full screen</button>
+  </header>
+  <div id="screen"></div>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sysprep answer file for Windows Server templates used by pve-panel.
+
+  Goal: after cloning, Windows boots straight to the login screen without
+  asking anything. The panel then sets the real Administrator password and the
+  computer name through the QEMU guest agent.
+
+  Adjust before use (marked with CHANGE):
+    - ProductKey:  your key (see README). Remove the line if the image already
+                   contains a key; if the key screen still appears, it's needed.
+    - Locale:      UILanguage must be a language installed in the image.
+                   de-DE / keyboard 0407:00000407 for German, en-US / 0409:00000409.
+    - TimeZone:    e.g. "W. Europe Standard Time" (tzutil /l lists all).
+    - Temporary Administrator password: only used until the panel replaces it.
+
+  Usage inside the template VM (as Administrator):
+    copy unattend.xml C:\Windows\System32\Sysprep\unattend.xml
+    C:\Windows\System32\Sysprep\sysprep.exe /generalize /oobe /shutdown /unattend:C:\Windows\System32\Sysprep\unattend.xml
+  Then convert the VM to a template in Proxmox WITHOUT booting it again.
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+
+  <!-- Runs once after cloning: machine-specific settings -->
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <!-- Random name for now; the panel renames the computer afterwards -->
+      <ComputerName>*</ComputerName>
+      <!-- CHANGE: product key (answers the "enter product key" screen) -->
+      <ProductKey>XXXXX-XXXXX-XXXXX-XXXXX-XXXXX</ProductKey>
+      <!-- CHANGE: time zone -->
+      <TimeZone>W. Europe Standard Time</TimeZone>
+    </component>
+
+    <!-- Allow Remote Desktop connections -->
+    <component name="Microsoft-Windows-TerminalServices-LocalSessionManager" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <fDenyTSConnections>false</fDenyTSConnections>
+    </component>
+    <component name="Networking-MPSSVC-Svc" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <FirewallGroups>
+        <FirewallGroup wcm:action="add" wcm:keyValue="RemoteDesktop">
+          <Active>true</Active>
+          <Group>@FirewallAPI.dll,-28752</Group>
+          <Profile>all</Profile>
+        </FirewallGroup>
+      </FirewallGroups>
+    </component>
+  </settings>
+
+  <!-- The welcome screens (OOBE): every question answered, nothing shown -->
+  <settings pass="oobeSystem">
+    <!-- CHANGE: language, region and keyboard (answers the region/keyboard screens) -->
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <InputLocale>0407:00000407</InputLocale>
+      <SystemLocale>de-DE</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>de-DE</UserLocale>
+    </component>
+
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64"
+               publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>                  <!-- license terms -->
+        <HideLocalAccountScreen>true</HideLocalAccountScreen>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <NetworkLocation>Work</NetworkLocation>
+        <ProtectYourPC>3</ProtectYourPC>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>
+      <UserAccounts>
+        <!-- CHANGE: temporary password (answers the "set Administrator password" screen).
+             Must meet Windows complexity rules. The panel replaces it for every customer. -->
+        <AdministratorPassword>
+          <Value>Template-Temp-Pass-2026!</Value>
+          <PlainText>true</PlainText>
+        </AdministratorPassword>
+      </UserAccounts>
+    </component>
+  </settings>
+</unattend>

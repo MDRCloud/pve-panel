@@ -1,0 +1,34 @@
+{
+  "name": "pve-panel",
+  "version": "0.1.0",
+  "description": "Customer self-service control panel for Proxmox VE",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/server.js",
+    "user:create": "node --disable-warning=ExperimentalWarning scripts/create-user.js",
+    "vm:assign": "node --disable-warning=ExperimentalWarning scripts/assign-vm.js",
+    "user:reset-2fa": "node --disable-warning=ExperimentalWarning scripts/reset-2fa.js",
+    "db:backup": "node --disable-warning=ExperimentalWarning scripts/backup-db.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/jwt": "^9.0.0",
+    "@fastify/rate-limit": "^10.0.0",
+    "@fastify/static": "^8.0.0",
+    "@fastify/websocket": "^11.0.0",
+    "@novnc/novnc": "^1.5.0",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.0",
+    "fastify": "^5.0.0",
+    "fastify-plugin": "^6.0.0",
+    "openid-client": "^6.8.8",
+    "qrcode": "^1.5.4",
+    "undici": "^6.19.0",
+    "ws": "^8.18.0"
+  }
+}

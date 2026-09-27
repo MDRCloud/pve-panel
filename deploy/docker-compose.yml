@@ -1,0 +1,32 @@
+# For running the ready-made image from GitHub (no build, no source code needed).
+# Put this file and your .env into one folder on the NAS, e.g.
+# /volume1/docker/pve-panel, and create a Docker Project there.
+#
+# In .env set at least:
+#   PANEL_IMAGE=ghcr.io/<github-user>/<repository>:latest   (all lowercase;
+#               or a release instead of latest, e.g. :1.2.0)
+# plus the usual panel settings (see example.env).
+
+services:
+  panel:
+    image: ${PANEL_IMAGE:?set PANEL_IMAGE in .env, e.g. ghcr.io/yourname/pve-panel:latest}
+    pull_policy: always              # get the newest image of that tag on (re)deploy
+    init: true
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      ADMIN_HOST: 0.0.0.0
+      DB_PATH: /app/data/panel.db
+    ports:
+      - "3000:3000"                  # customer panel
+      - "127.0.0.1:3001:3001"        # admin interface: only on the NAS itself
+      # Alternative: admin in your LAN on the NAS's address (replace the line above,
+      # never forward it on your router):
+      # - "192.168.1.20:3001:3001"
+    volumes:
+      - panel-data:/app/data
+      # - ./pve-root-ca.pem:/app/certs/pve-root-ca.pem:ro   (PVE_CA_FILE=/app/certs/pve-root-ca.pem)
+
+volumes:
+  panel-data:

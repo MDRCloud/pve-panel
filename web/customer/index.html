@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Server panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/shared/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <!-- Sign-in -->
+  <main id="login-view" class="login" hidden>
+    <section class="login-art" aria-hidden="true">
+      <div class="login-brand"><span data-brand-mark></span><span data-brand></span></div>
+      <svg class="login-graphic" viewBox="0 0 420 320">
+        <g class="lg-edges">
+          <path d="M210 160L90 80M210 160L330 70M210 160L350 210M210 160L200 280M210 160L70 230"/>
+          <path class="lg-dash" d="M210 160L210 30"/>
+        </g>
+        <circle class="lg-hub" cx="210" cy="160" r="30"/>
+        <circle class="lg-node run" cx="90" cy="80" r="16"/>
+        <circle class="lg-node run" cx="330" cy="70" r="16"/>
+        <circle class="lg-node" cx="350" cy="210" r="16"/>
+        <circle class="lg-node run" cx="200" cy="280" r="16"/>
+        <circle class="lg-node" cx="70" cy="230" r="16"/>
+        <rect class="lg-vpn" x="176" y="14" width="68" height="30" rx="15"/>
+      </svg>
+      <p class="login-claim">Your servers in your own private network, reachable from anywhere through your VPN.</p>
+    </section>
+    <section class="login-panel">
+      <form id="login-form" class="login-box" novalidate>
+        <div class="login-brand small"><span data-brand-mark></span><span data-brand></span></div>
+        <h1>Sign in</h1>
+        <label>Email
+          <input name="email" type="email" autocomplete="username" required>
+        </label>
+        <label>Password
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <p id="login-error" class="form-error" role="alert"></p>
+        <button type="submit" class="btn primary wide">Sign in</button>
+      </form>
+      <div id="login-2fa" class="login-box" hidden></div>
+    </section>
+  </main>
+
+  <!-- Panel -->
+  <div id="app-view" class="shell" hidden>
+    <aside class="sidebar">
+      <div class="side-top">
+        <div class="brand"><span data-brand-mark></span><span data-brand></span></div>
+        <button id="sidebar-toggle" class="icon-btn side-toggle" aria-label="Menu" aria-expanded="false" aria-controls="side-nav">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+      </div>
+      <div id="side-nav" class="side-nav">
+        <nav id="rack-actions" class="nav" aria-label="Main"></nav>
+        <div class="side-section">
+          <h2 class="side-label">Servers <span id="vm-count" class="count"></span></h2>
+          <ul id="vm-list" class="units"></ul>
+        </div>
+        <div class="side-foot">
+          <button id="nav-account" class="account-btn" title="Account and security">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5c1-3.3 3.8-5 7-5s6 1.7 7 5"/></svg>
+            <span id="account-email" class="account"></span>
+          </button>
+          <button id="logout" class="link-btn">Sign out</button>
+        </div>
+      </div>
+    </aside>
+
+    <main id="detail" class="main" aria-live="polite"></main>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <dialog id="confirm">
+    <form method="dialog">
+      <p id="confirm-text"></p>
+      <div class="row end">
+        <button value="cancel" class="btn ghost">Cancel</button>
+        <button value="ok" id="confirm-ok" class="btn danger">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="prompt">
+    <form method="dialog">
+      <label>
+        <span id="prompt-text"></span>
+        <input id="prompt-input" autocomplete="off">
+      </label>
+      <p id="prompt-hint" class="muted small"></p>
+      <div class="row end">
+        <button value="cancel" class="btn ghost" formnovalidate>Cancel</button>
+        <button value="ok" id="prompt-ok" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
