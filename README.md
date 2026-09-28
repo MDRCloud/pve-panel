@@ -108,6 +108,7 @@ PVE Panel was built with substantial help from an AI assistant (**Claude by Anth
 - Launch an integrated browser console
 - Create new servers from administrator-approved templates
 - Reinstall self-created servers from a template (same name, size and network address)
+- Resize self-created servers within their plan (CPU, memory, disk)
 - Delete self-created servers
 - View provisioning progress and actionable failure messages
 - Manage personal VPN devices
@@ -1116,6 +1117,7 @@ Only these file names are served, with a strict sandbox policy. Make sure you're
 | `GET` | `/api/templates` | Available templates |
 | `POST` | `/api/vms` | Provision a server |
 | `POST` | `/api/vms/:vmid/reinstall` | Reinstall a self-created server from a template |
+| `POST` | `/api/vms/:vmid/resize` | Change CPU cores, memory and disk within the plan |
 | `DELETE` | `/api/vms/:vmid` | Delete a self-created server |
 | `GET` | `/api/vpn` | VPN state |
 | `POST` | `/api/vpn/devices` | Add VPN device |
@@ -1173,6 +1175,19 @@ Customers can start a self-created server fresh from any offered template that f
 - confirmed by typing the server name; a failed reinstall can simply be retried
 
 Servers assigned by an administrator cannot be reinstalled by customers.
+
+### Resize
+
+Customers can change the size of self-created servers within their plan:
+
+| Resource | How it changes |
+|---|---|
+| CPU cores, memory | Saved immediately; a running server uses them after a **restart from the panel** (optional right away) |
+| Disk | **Grow only**, applied immediately — Linux cloud images expand at the next boot, Windows drive `C:` is extended by the panel |
+
+- the plan check counts **pending** changes too, so resizing several running servers can't exceed the plan
+- the server page shows *Size change waiting for a restart* until the change is active
+- Windows needs at least 2 GB of memory; disks can never shrink
 
 If provisioning fails, the customer receives a visible failure state instead of a permanently spinning setup process.
 

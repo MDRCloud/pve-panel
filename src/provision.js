@@ -6,6 +6,7 @@ import {
 } from './pve.js';
 import { ensureNetwork, isolateGuest, nicModel } from './network.js';
 import { setupWindows, windowsPasswordProblem } from './windows.js';
+import { agentExec } from './agent.js';
 
 const MB = 1024 ** 2;
 const GB = 1024 ** 3;
@@ -21,16 +22,29 @@ export function limitsOf(account) {
   };
 }
 
+/** Total size of a VM's disks in GB (CD drives and cloud-init drives excluded). */
+export function diskTotalGb(cfg) {
+  let total = 0;
+  for (const [k, v] of Object.entries(cfg)) {
+    if (!/^(scsi|virtio|sata|ide)\d+$/.test(k)) continue;
+    if (/media=cdrom|cloudinit/.test(String(v))) continue;
+    total += diskSizeGb(v) || 0;
+  }
+  return Math.round(total);
+}
+
 /**
- * Resources a customer currently uses, over ALL their servers (also the ones
- * an admin assigned). Servers still being created count with what was
- * requested, since Proxmox doesn't show their final size yet.
+ * Resources a customer uses, over ALL their servers (also the ones an admin
+ * assigned). Read from each server's configuration, which includes PENDING
+ * changes (e.g. more memory waiting for a restart), so resizing several running
+ * servers can't exceed the plan. Servers still being created count with what
+ * was requested.
  */
 export async function usageOf(userId) {
   const rows = db.prepare('SELECT vmid, state, spec FROM vms WHERE user_id = ?').all(userId);
   const guests = await clusterGuests();
   const usage = { servers: 0, cores: 0, memoryMb: 0, diskGb: 0 };
-  for (const row of rows) {
+  await Promise.all(rows.map(async (row) => {
     usage.servers += 1;
     const spec = row.spec ? JSON.parse(row.spec) : null;
     const guest = guests.get(row.vmid);
@@ -38,12 +52,20 @@ export async function usageOf(userId) {
       usage.cores += spec.cores;
       usage.memoryMb += spec.memoryMb;
       usage.diskGb += spec.diskGb;
-    } else if (guest) {
+      return;
+    }
+    if (!guest) return;
+    try {
+      const cfg = await pve.get(`${guestPath(guest)}/config`); // pending values included
+      usage.cores += (Number(cfg.cores) || 1) * (Number(cfg.sockets) || 1);
+      usage.memoryMb += Number(cfg.memory) || 512;
+      usage.diskGb += diskTotalGb(cfg);
+    } catch {
       usage.cores += guest.maxcpu ?? 0;
       usage.memoryMb += Math.round((guest.maxmem ?? 0) / MB);
       usage.diskGb += Math.round((guest.maxdisk ?? 0) / GB);
     }
-  }
+  }));
   return usage;
 }
 
@@ -352,6 +374,122 @@ export async function reinstallServer(req, row, input) {
     })();
   } finally {
     if (!background) creatingFor.delete(account.id);
+  }
+}
+
+// ---- Resize -----------------------------------------------------------------
+
+const resizing = new Set(); // one resize per server at a time
+
+// Extends drive C: into free space behind it. Prints "extended", "nothing"
+// (already full size) or "blocked" (another partition, e.g. Recovery, is in the way).
+const WIN_EXTEND_C = `
+$ErrorActionPreference = 'Stop'
+Update-HostStorageCache
+$part = Get-Partition -DriveLetter C
+$max = (Get-PartitionSupportedSize -DriveLetter C).SizeMax
+$disk = Get-Disk -Number $part.DiskNumber
+if ($max - $part.Size -gt 100MB) { Resize-Partition -DriveLetter C -Size $max; 'extended' }
+elseif ($disk.LargestFreeExtent -gt 100MB) { 'blocked' }
+else { 'nothing' }
+`;
+
+/**
+ * Changes CPU cores, memory and/or disk size of a customer-created server
+ * within the plan. CPU/memory on a running server take effect at the next
+ * restart by Proxmox (optionally right away); disks only grow.
+ */
+export async function resizeServer(req, row, { cores, memoryMb, diskGb, restart = false }) {
+  const account = req.account;
+  if (!row.created_by_customer) throw new ProvisionError(403, 'Only servers you created yourself can be resized');
+  if (!account.can_create) throw new ProvisionError(403, 'Resizing is not enabled for your account');
+  if (row.state !== 'ready') throw new ProvisionError(409, 'Wait until the current operation on this server has finished');
+  if (resizing.has(row.vmid)) throw new ProvisionError(409, 'This server is already being resized');
+  resizing.add(row.vmid);
+  try {
+    const guest = (await clusterGuests(true)).get(row.vmid);
+    if (!guest) throw new ProvisionError(404, 'Server not found');
+    const path = guestPath(guest);
+    const cfg = await pve.get(`${path}/config`); // includes pending values
+    const windows = /^w/.test(cfg.ostype ?? '');
+    const disk = bootDiskKey(cfg);
+    const cur = {
+      cores: (Number(cfg.cores) || 1) * (Number(cfg.sockets) || 1),
+      memoryMb: Number(cfg.memory) || 512,
+      diskGb: disk ? Math.ceil(diskSizeGb(cfg[disk])) : 0,
+    };
+    const next = { cores: cores ?? cur.cores, memoryMb: memoryMb ?? cur.memoryMb, diskGb: diskGb ?? cur.diskGb };
+
+    if (next.diskGb < cur.diskGb) throw new ProvisionError(400, `Disks can only grow; this one has ${cur.diskGb} GB`);
+    if (next.diskGb > cur.diskGb && !disk) throw new ProvisionError(400, "This server's disk can't be resized here");
+    if (windows && next.memoryMb < 2048) throw new ProvisionError(400, 'Windows needs at least 2 GB of memory');
+    const cpuMemChanged = next.cores !== cur.cores || next.memoryMb !== cur.memoryMb;
+    const diskChanged = next.diskGb > cur.diskGb;
+    if (!cpuMemChanged && !diskChanged) throw new ProvisionError(400, 'Nothing to change');
+
+    // Plan: everything else the customer uses, plus this server's new size
+    const limits = limitsOf(account);
+    const usage = await usageOf(account.id);
+    const others = { cores: usage.cores - cur.cores, memoryMb: usage.memoryMb - cur.memoryMb, diskGb: usage.diskGb - cur.diskGb };
+    const over = [];
+    if (others.cores + next.cores > limits.cores) over.push(`CPU cores (at most ${limits.cores - others.cores} for this server)`);
+    if (others.memoryMb + next.memoryMb > limits.memoryMb) {
+      over.push(`memory (at most ${((limits.memoryMb - others.memoryMb) / 1024).toFixed(1)} GB for this server)`);
+    }
+    if (others.diskGb + next.diskGb > limits.diskGb) over.push(`disk (at most ${limits.diskGb - others.diskGb} GB for this server)`);
+    if (over.length) throw new ProvisionError(409, `This exceeds your plan: ${over.join(', ')}`);
+
+    const running = guest.status === 'running';
+    if (cpuMemChanged) {
+      await pve.put(`${path}/config`, { cores: next.cores, sockets: 1, memory: next.memoryMb });
+    }
+    if (diskChanged) {
+      try {
+        await waitTask(guest.node, await pve.put(`${path}/resize`, { disk, size: `${next.diskGb}G` }));
+      } catch (err) {
+        throw new ProvisionError(502, `Proxmox could not enlarge the disk: ${err.message}`
+          + (cpuMemChanged ? ' (the CPU/memory change was saved)' : ''));
+      }
+    }
+
+    // Keep the stored size in step (used by reinstall)
+    const spec = row.spec ? JSON.parse(row.spec) : {};
+    db.prepare('UPDATE vms SET spec = ? WHERE vmid = ?')
+      .run(JSON.stringify({ ...spec, cores: next.cores, memoryMb: next.memoryMb, diskGb: next.diskGb }), row.vmid);
+
+    // Windows doesn't grow its partition by itself
+    let windowsDisk = null;
+    if (diskChanged && windows) {
+      if (!running) {
+        windowsDisk = 'not-running';
+      } else {
+        try {
+          const r = await agentExec(path, [
+            'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+            '-EncodedCommand', Buffer.from(WIN_EXTEND_C, 'utf16le').toString('base64'),
+          ], 120_000);
+          windowsDisk = /extended/.test(r.out) ? 'extended' : /blocked/.test(r.out) ? 'blocked' : /nothing/.test(r.out) ? 'extended' : 'failed';
+        } catch {
+          windowsDisk = 'failed';
+        }
+      }
+    }
+
+    let restartTask = null;
+    if (cpuMemChanged && running && restart) {
+      restartTask = await pve.post(`${path}/status/reboot`); // a Proxmox restart applies pending changes
+      invalidateGuestCache();
+    }
+    audit(req, row.vmid, 'server_resized', { before: cur, after: next, restart: !!restartTask });
+    return {
+      before: cur,
+      after: next,
+      pendingRestart: cpuMemChanged && running && !restartTask,
+      restartTask: typeof restartTask === 'string' ? restartTask : null,
+      windowsDisk,
+    };
+  } finally {
+    resizing.delete(row.vmid);
   }
 }
 

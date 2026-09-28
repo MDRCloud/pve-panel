@@ -4,7 +4,7 @@ import {
   pve, clusterGuests, locateGuest, guestPath, invalidateGuestCache, bootDiskKey, diskSizeGb,
 } from '../pve.js';
 import {
-  limitsOf, usageOf, offeredTemplates, createServer, deleteServer, reinstallServer,
+  limitsOf, usageOf, offeredTemplates, createServer, deleteServer, reinstallServer, resizeServer,
 } from '../provision.js';
 import { networkOf } from '../network.js';
 import { vpnInfoFor } from '../vpn.js';
@@ -227,6 +227,28 @@ export default async function vmRoutes(app) {
     return reply.code(202).send({ started: true });
   });
 
+  // Resize within the plan: cores, memory, disk (grow only)
+  app.post('/api/vms/:vmid/resize', {
+    config: { rateLimit: { max: 20, timeWindow: '1 hour' } },
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          cores: { type: 'integer', minimum: 1, maximum: 128 },
+          memoryMb: { type: 'integer', minimum: 512, maximum: 1024 * 1024 },
+          diskGb: { type: 'integer', minimum: 1, maximum: 64 * 1024 },
+          restart: { type: 'boolean' },
+        },
+      },
+    },
+  }, async (req) => {
+    const vmid = Number(req.params.vmid);
+    const row = Number.isInteger(vmid) ? ownedByUser.get(vmid, req.account.id) : null;
+    if (!row) throw notFound();
+    return resizeServer(req, row, req.body);
+  });
+
   app.delete('/api/vms/:vmid', {
     config: { rateLimit: { max: 10, timeWindow: '10 minutes' } },
   }, async (req, reply) => {
@@ -280,6 +302,19 @@ export default async function vmRoutes(app) {
       ? await guestIps(path)
       : null;
 
+    // CPU/memory changes that wait for a restart by Proxmox
+    let pendingSize = null;
+    if (status.status === 'running' && guest.type === 'qemu') {
+      const pending = await pve.get(`${path}/pending`).catch(() => []);
+      const p = Object.fromEntries(pending.filter((e) => e.pending !== undefined).map((e) => [e.key, e.pending]));
+      if (p.cores !== undefined || p.memory !== undefined || p.sockets !== undefined) {
+        pendingSize = {
+          cores: (Number(p.cores ?? cfg.cores) || 1) * (Number(p.sockets ?? cfg.sockets) || 1),
+          memoryMb: Number(p.memory ?? cfg.memory) || null,
+        };
+      }
+    }
+
     return {
       ...summarize(row, { ...guest, ...status, maxcpu: status.cpus ?? guest.maxcpu }),
       os: cfg.ostype ?? null,          // raw Proxmox ostype, e.g. "win11", "l26"
@@ -287,10 +322,13 @@ export default async function vmRoutes(app) {
       // for the reinstall form: current image and disk size
       templateId: row.spec ? JSON.parse(row.spec).template ?? null : null,
       diskGb: (() => { const k = bootDiskKey(cfg); return k ? Math.ceil(diskSizeGb(cfg[k])) : null; })(),
-      memoryMb: Number(cfg.memory) || null,
-      cores: (Number(cfg.cores) || 1) * (Number(cfg.sockets) || 1),
+      // What the server runs with now (config would show pending values)
+      memoryMb: status.status === 'running' && status.maxmem ? Math.round(status.maxmem / 2 ** 20) : (Number(cfg.memory) || null),
+      cores: status.status === 'running' && status.cpus ? status.cpus : (Number(cfg.cores) || 1) * (Number(cfg.sockets) || 1),
       ipconfig: cfg.ipconfig0 ?? cfg.net0 ?? null,
       ips,
+      pendingSize,
+      resizable: !!row.created_by_customer,
       netin: status.netin ?? 0,
       netout: status.netout ?? 0,
     };

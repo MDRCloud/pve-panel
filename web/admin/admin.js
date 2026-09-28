@@ -42,6 +42,7 @@ const ACTION_LABELS = {
   admin_user_delete_started: 'Started deleting customer',
   admin_user_delete_failed: 'Deleting customer failed',
   admin_invite_sent: 'Sent invitation',
+  server_resized: 'Changed server size',
   server_reinstall_started: 'Started reinstalling server',
   server_reinstalled: 'Reinstalled server',
   server_reinstall_failed: 'Reinstalling server failed',

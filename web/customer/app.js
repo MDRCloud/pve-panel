@@ -369,6 +369,15 @@ function renderOverview(body) {
       <div><dt>Disk</dt><dd>${bytes(vm.maxdisk)}</dd></div>
       <div class="wide"><dt>IP addresses</dt><dd>${ips}</dd></div>
     </dl>
+    ${vm.pendingSize ? `
+      <div class="notice warn size-pending">
+        <p><strong>Size change waiting for a restart:</strong> ${esc(vm.pendingSize.cores)} ${vm.pendingSize.cores === 1 ? 'core' : 'cores'},
+          ${esc(bytes(vm.pendingSize.memoryMb * 1024 * 1024))} memory. It takes effect when the server is restarted from this
+          panel; a restart inside the server isn't enough.</p>
+        <button class="btn" data-power="reboot">${icon('restart')}<span>Restart now</span></button>
+      </div>` : ''}
+    ${vm.resizable && state.account.canCreate ? `
+      <div class="row size-row"><button class="btn" data-resize>${icon('server')}<span>Change size…</span></button></div>` : ''}
 
     <div class="section-head">
       <h2>Usage</h2>
@@ -902,6 +911,118 @@ function onTemplateChange(form) {
   applyTemplateMode(form, tpl);
 }
 
+// ---------- resize -----------------------------------------------------------
+async function openResize() {
+  const vm = state.detail;
+  if (!vm) return;
+  state.view = 'resize';
+  $('#detail').innerHTML = '<div class="detail-inner"><p class="muted">Loading…</p></div>';
+  try {
+    state.account = await api('/api/account'); // fresh plan usage
+    if (state.view === 'resize') renderResize(vm);
+  } catch (err) { fail(err); }
+}
+
+function renderResize(vm) {
+  const { limits, usage } = state.account;
+  const gb = (mb) => `${+(mb / 1024).toFixed(1)} GB`;
+  const windows = vm.osFamily === 'windows';
+  // This server's configured size (a pending change counts; usage includes it)
+  const cur = {
+    cores: vm.pendingSize?.cores ?? vm.cores,
+    memoryMb: vm.pendingSize?.memoryMb ?? vm.memoryMb,
+    diskGb: vm.diskGb,
+  };
+  const max = {
+    cores: limits.cores - usage.cores + cur.cores,
+    memoryMb: limits.memoryMb - usage.memoryMb + cur.memoryMb,
+    diskGb: limits.diskGb - usage.diskGb + cur.diskGb,
+  };
+  const minMem = windows ? 2048 : 512;
+  const steps = [...new Set([...MEMORY_STEPS_MB, cur.memoryMb])].sort((a, b) => a - b)
+    .filter((m) => m >= Math.min(minMem, cur.memoryMb) && m <= Math.max(max.memoryMb, cur.memoryMb));
+  const running = vm.status === 'running';
+
+  $('#detail').innerHTML = `
+    <div class="detail-inner">
+      <button class="link-btn" data-back-to-server>${icon('back', { size: 16 })}<span>${esc(vm.name)}</span></button>
+      <div class="detail-head"><div><h1>Change size of ${esc(vm.name)}</h1>
+        <p class="muted plan-line">Now: ${cur.cores} ${cur.cores === 1 ? 'core' : 'cores'}, ${gb(cur.memoryMb)} memory, ${cur.diskGb} GB disk.
+          Your plan allows this server up to ${max.cores} cores, ${gb(max.memoryMb)} memory and ${max.diskGb} GB disk.</p>
+      </div></div>
+      <form id="resize-form" class="create-form" novalidate>
+        <fieldset>
+          <legend>New size</legend>
+          <div class="grid-3">
+            <label>CPU cores
+              <input name="cores" type="number" min="1" max="${Math.max(max.cores, cur.cores)}" value="${cur.cores}" required>
+            </label>
+            <label>Memory
+              <select name="memoryMb">
+                ${steps.map((m) => `<option value="${m}" ${m === cur.memoryMb ? 'selected' : ''}>${gb(m)}${m === cur.memoryMb ? ' (now)' : ''}</option>`).join('')}
+              </select>
+              ${windows ? '<span class="hint">Windows needs at least 2 GB.</span>' : ''}
+            </label>
+            <label>Disk (GB)
+              <input name="diskGb" type="number" min="${cur.diskGb}" max="${Math.max(max.diskGb, cur.diskGb)}" value="${cur.diskGb}" required>
+              <span class="hint">Can only grow; this can't be undone.</span>
+            </label>
+          </div>
+          ${running ? `
+            <label class="check">
+              <input type="checkbox" name="restart" checked>
+              <span>Restart the server now
+                <span class="muted">New CPU and memory settings take effect only when the panel restarts the server.
+                  Without this, they wait for the next restart. A larger disk works right away.</span>
+              </span>
+            </label>` : '<p class="muted small">The server is stopped; the new size applies when you start it.</p>'}
+          ${windows ? '<p class="muted small">For Windows, the panel also extends drive C: into the new disk space while the server is running.</p>'
+            : '<p class="muted small">Linux cloud images use new disk space automatically after the next restart.</p>'}
+        </fieldset>
+        <p id="resize-error" class="form-error" role="alert"></p>
+        <div class="row">
+          <button class="btn primary" id="resize-submit">Apply</button>
+          <button type="button" class="btn ghost" data-back-to-server>Cancel</button>
+        </div>
+      </form>
+    </div>`;
+  state.resizeFrom = cur;
+}
+
+async function submitResize(form) {
+  const err = $('#resize-error');
+  err.textContent = '';
+  if (!form.reportValidity()) return;
+  const cur = state.resizeFrom;
+  const body = {};
+  const cores = Number(form.cores.value);
+  const memoryMb = Number(form.memoryMb.value);
+  const diskGb = Number(form.diskGb.value);
+  if (cores !== cur.cores) body.cores = cores;
+  if (memoryMb !== cur.memoryMb) body.memoryMb = memoryMb;
+  if (diskGb !== cur.diskGb) body.diskGb = diskGb;
+  if (!Object.keys(body).length) { err.textContent = 'Nothing changed.'; return; }
+  if (body.diskGb && !(await confirmAction(`Grow the disk to ${diskGb} GB? Disks can't be made smaller again.`, 'Grow disk'))) return;
+  body.restart = !!form.restart?.checked;
+  const button = $('#resize-submit');
+  button.disabled = true;
+  try {
+    const vmid = state.detail.vmid;
+    const r = await api(`/api/vms/${vmid}/resize`, { method: 'POST', body });
+    const notes = [r.restartTask ? 'Restarting to apply the new size.' : r.pendingRestart ? 'CPU and memory take effect at the next restart from the panel.' : 'Size changed.'];
+    let kind;
+    if (r.windowsDisk === 'extended') notes.push('Drive C: was extended.');
+    if (r.windowsDisk === 'blocked') { notes.push("Windows can't extend drive C: because another partition (usually Recovery) sits behind it. Extend it in Disk Management after moving that partition."); kind = 'warn'; }
+    if (r.windowsDisk === 'not-running' || r.windowsDisk === 'failed') { notes.push('Extend drive C: in Windows Disk Management to use the new space.'); kind = 'warn'; }
+    toast(notes.join(' '), kind);
+    await loadList();
+    select(vmid);
+  } catch (ex) {
+    err.textContent = ex.message;
+    button.disabled = false;
+  }
+}
+
 // ---------- reinstall --------------------------------------------------------
 async function openReinstall() {
   const listed = state.vms.find((v) => v.vmid === state.selected);
@@ -1286,6 +1407,7 @@ $('#detail').addEventListener('click', (e) => {
     input.type = 'text';
   }
   if (t.hasAttribute('data-reinstall')) openReinstall();
+  if (t.hasAttribute('data-resize')) openResize();
   if (t.hasAttribute('data-back-to-server') && state.detail) select(state.detail.vmid);
   if (t.hasAttribute('data-delete-server')) {
     const vm = state.vms.find((v) => v.vmid === state.selected);
@@ -1312,6 +1434,11 @@ $('#detail').addEventListener('submit', (e) => {
   if (e.target.id === 'reinstall-form') {
     e.preventDefault();
     submitReinstall(e.target);
+    return;
+  }
+  if (e.target.id === 'resize-form') {
+    e.preventDefault();
+    submitResize(e.target);
     return;
   }
   if (e.target.id !== 'create-form') return;
