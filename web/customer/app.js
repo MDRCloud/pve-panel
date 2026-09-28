@@ -283,8 +283,13 @@ function renderPending(vm) {
     failed: `
       <p>Setting up this server didn't work.</p>
       ${vm.error ? `<p class="error-box">${esc(vm.error)}</p>` : ''}
-      <p class="muted">Remove it and try again, or contact support if it keeps happening.</p>
-      ${vm.deletable ? `<button class="btn danger" data-delete-server>${icon('trash')}<span>Remove server</span></button>` : ''}`,
+      <p class="muted">${vm.reinstallable && state.account.canCreate
+        ? 'Reinstall it to try again, remove it, or contact support if it keeps happening.'
+        : 'Remove it and try again, or contact support if it keeps happening.'}</p>
+      <div class="row">
+        ${vm.reinstallable && state.account.canCreate ? `<button class="btn" data-reinstall>${icon('restart')}<span>Reinstall</span></button>` : ''}
+        ${vm.deletable ? `<button class="btn danger" data-delete-server>${icon('trash')}<span>Remove server</span></button>` : ''}
+      </div>`,
   }[vm.state];
   $('#detail').innerHTML = `
     <div class="page">
@@ -373,6 +378,15 @@ function renderOverview(body) {
       </div>
     </div>
     <div class="charts" id="charts"><p class="muted">Loading graphs…</p></div>
+    ${vm.reinstallable && state.account.canCreate ? `
+      <div class="danger-zone">
+        <div>
+          <h2>Reinstall</h2>
+          <p class="muted">Start fresh with a new copy of an image. Everything on the server is erased, snapshots too;
+            name, size and network address stay.</p>
+        </div>
+        <button class="btn danger" data-reinstall>${icon('restart')}<span>Reinstall…</span></button>
+      </div>` : ''}
     ${vm.deletable ? `
       <div class="danger-zone">
         <div>
@@ -869,11 +883,13 @@ function applyTemplateMode(form, tpl) {
   });
   form.username.required = !windows;
   form.password.required = windows;
-  form.hostname.maxLength = windows ? 15 : 63;
-  $('#hostname-hint').textContent = windows
-    ? 'Lowercase letters, numbers and hyphens, at most 15 characters.'
-    : 'Lowercase letters, numbers and hyphens.';
-  $('#windows-user').textContent = windows ? tpl.defaultUser : '';
+  if (form.hostname) {
+    form.hostname.maxLength = windows ? 15 : 63;
+    $('#hostname-hint').textContent = windows
+      ? 'Lowercase letters, numbers and hyphens, at most 15 characters.'
+      : 'Lowercase letters, numbers and hyphens.';
+  }
+  form.querySelector('#windows-user').textContent = windows ? tpl.defaultUser : '';
 }
 
 function onTemplateChange(form) {
@@ -884,6 +900,130 @@ function onTemplateChange(form) {
   if (Number(disk.value) < tpl.minDiskGb) disk.value = tpl.minDiskGb;
   if (!form.username.dataset.edited && tpl.setup !== 'windows') form.username.value = tpl.defaultUser || 'admin';
   applyTemplateMode(form, tpl);
+}
+
+// ---------- reinstall --------------------------------------------------------
+async function openReinstall() {
+  const listed = state.vms.find((v) => v.vmid === state.selected);
+  const vm = state.detail?.vmid === state.selected ? { ...listed, ...state.detail } : listed;
+  if (!vm) return;
+  state.detail = vm;
+  state.view = 'reinstall';
+  $('#detail').innerHTML = '<div class="detail-inner"><p class="muted">Loading…</p></div>';
+  try {
+    state.templates = await api('/api/templates');
+    if (state.view === 'reinstall') renderReinstall(vm);
+  } catch (err) { fail(err); }
+}
+
+function renderReinstall(vm) {
+  const name = vm.name;
+  const fits = (t) => !vm.diskGb || t.minDiskGb <= vm.diskGb;
+  const current = state.templates.find((t) => t.id === vm.templateId && fits(t));
+  const first = current ?? state.templates.find(fits);
+  const head = `
+    <button class="link-btn" data-back-to-server>${icon('back', { size: 16 })}<span>${esc(name)}</span></button>
+    <div class="detail-head"><div><h1>Reinstall ${esc(name)}</h1></div></div>`;
+
+  if (!first) {
+    $('#detail').innerHTML = `<div class="detail-inner">${head}
+      <div class="pending"><p>No image fits this server's disk (${esc(vm.diskGb)} GB).</p>
+      <p class="muted">Contact support.</p></div></div>`;
+    return;
+  }
+
+  $('#detail').innerHTML = `
+    <div class="detail-inner">${head}
+      <div class="notice warn reinstall-notice">
+        <p><strong>Everything on ${esc(name)} will be erased</strong>, including all snapshots${state.account.tailscale ? ' and any Tailscale connection' : ''}.
+          The server keeps its name, ID${vm.cores ? `, size (${esc(vm.cores)} ${vm.cores === 1 ? 'core' : 'cores'}, ${esc(bytes(vm.maxmem))} memory,
+          ${esc(vm.diskGb)} GB disk)` : ', size'} and usually its network address. It is stopped for the reinstall.</p>
+      </div>
+      <form id="reinstall-form" class="create-form" novalidate>
+        <fieldset>
+          <legend>Image</legend>
+          <div class="choices">
+            ${state.templates.map((t) => `
+              <label class="choice">
+                <input type="radio" name="templateId" value="${t.id}" ${t === first ? 'checked' : ''} ${fits(t) ? '' : 'disabled'}>
+                <span><strong>${esc(t.name)}</strong>
+                <span class="muted">${t.id === vm.templateId ? 'Current image' : fits(t) ? `Needs at least ${t.minDiskGb} GB disk` : `Needs ${t.minDiskGb} GB, more than this server has`}</span></span>
+              </label>`).join('')}
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>New sign-in</legend>
+          <div class="grid-2">
+            <label data-os="linux">Username
+              <input name="username" required maxlength="32" pattern="[a-z_][a-z0-9_\\-]*"
+                     value="${esc(first.setup === 'windows' ? 'admin' : (first.defaultUser || 'admin'))}" autocomplete="off">
+            </label>
+            <div data-os="windows" class="fixed-user">
+              <span class="label">User</span>
+              <span class="mono" id="windows-user"></span>
+            </div>
+          </div>
+          <label>Password
+            <span class="with-button">
+              <input name="password" type="password" minlength="12" maxlength="200" autocomplete="new-password">
+              <button type="button" class="btn" data-generate>Generate</button>
+            </span>
+            <span class="hint" data-os="linux">At least 12 characters. Leave empty if you only want to sign in with an SSH key.</span>
+            <span class="hint" data-os="windows">At least 12 characters with three of: lowercase, uppercase, numbers, symbols.</span>
+          </label>
+          <label data-os="linux">SSH public keys
+            <textarea name="sshKeys" rows="3" spellcheck="false" placeholder="ssh-ed25519 AAAA… you@laptop"></textarea>
+            <span class="hint">Optional. One key per line.</span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Confirm</legend>
+          <label><span>Type <span class="mono">${esc(name)}</span> to confirm</span>
+            <input name="confirm" required autocomplete="off" spellcheck="false">
+          </label>
+        </fieldset>
+
+        <p id="reinstall-error" class="form-error" role="alert"></p>
+        <div class="row">
+          <button class="btn danger" id="reinstall-submit" disabled>Erase and reinstall</button>
+          <button type="button" class="btn ghost" data-back-to-server>Cancel</button>
+        </div>
+      </form>
+    </div>`;
+  const form = $('#reinstall-form');
+  applyTemplateMode(form, first);
+  form.confirm.addEventListener('input', () => {
+    $('#reinstall-submit').disabled = form.confirm.value.trim() !== name;
+  });
+}
+
+async function submitReinstall(form) {
+  const err = $('#reinstall-error');
+  err.textContent = '';
+  if (form.confirm.value.trim() !== state.detail?.name) return;
+  if (!form.reportValidity()) return;
+  const tpl = state.templates.find((t) => t.id === Number(form.templateId.value));
+  const windows = tpl?.setup === 'windows';
+  const body = { templateId: tpl.id };
+  if (form.password.value) body.password = form.password.value;
+  if (!windows) {
+    body.username = form.username.value.trim();
+    if (form.sshKeys.value.trim()) body.sshKeys = form.sshKeys.value.trim();
+  }
+  const button = $('#reinstall-submit');
+  button.disabled = true;
+  try {
+    const vmid = state.detail.vmid;
+    await api(`/api/vms/${vmid}/reinstall`, { method: 'POST', body });
+    toast(`Reinstalling ${state.detail.name}`);
+    await loadList();
+    select(vmid);
+  } catch (ex) {
+    err.textContent = ex.message;
+    button.disabled = false;
+  }
 }
 
 async function submitCreate(form) {
@@ -1145,6 +1285,8 @@ $('#detail').addEventListener('click', (e) => {
     input.value = generatePassword();
     input.type = 'text';
   }
+  if (t.hasAttribute('data-reinstall')) openReinstall();
+  if (t.hasAttribute('data-back-to-server') && state.detail) select(state.detail.vmid);
   if (t.hasAttribute('data-delete-server')) {
     const vm = state.vms.find((v) => v.vmid === state.selected);
     if (vm) deleteServer(state.detail?.vmid === vm.vmid ? { ...vm, ...state.detail, name: vm.name } : vm);
@@ -1152,6 +1294,13 @@ $('#detail').addEventListener('click', (e) => {
 });
 
 $('#detail').addEventListener('change', (e) => {
+  const reinstall = e.target.closest('#reinstall-form');
+  if (reinstall && e.target.name === 'templateId') {
+    const tpl = state.templates.find((t) => t.id === Number(e.target.value));
+    if (tpl && !reinstall.username.dataset.edited && tpl.setup !== 'windows') reinstall.username.value = tpl.defaultUser || 'admin';
+    if (tpl) applyTemplateMode(reinstall, tpl);
+    return;
+  }
   const form = e.target.closest('#create-form');
   if (!form) return;
   if (e.target.name === 'templateId') onTemplateChange(form);
@@ -1160,6 +1309,11 @@ $('#detail').addEventListener('input', (e) => {
   if (e.target.name === 'username') e.target.dataset.edited = '1';
 });
 $('#detail').addEventListener('submit', (e) => {
+  if (e.target.id === 'reinstall-form') {
+    e.preventDefault();
+    submitReinstall(e.target);
+    return;
+  }
   if (e.target.id !== 'create-form') return;
   e.preventDefault();
   submitCreate(e.target);

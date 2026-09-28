@@ -1,8 +1,10 @@
 import { db, audit } from '../db.js';
 import { config } from '../config.js';
-import { pve, clusterGuests, locateGuest, guestPath, invalidateGuestCache } from '../pve.js';
 import {
-  limitsOf, usageOf, offeredTemplates, createServer, deleteServer,
+  pve, clusterGuests, locateGuest, guestPath, invalidateGuestCache, bootDiskKey, diskSizeGb,
+} from '../pve.js';
+import {
+  limitsOf, usageOf, offeredTemplates, createServer, deleteServer, reinstallServer,
 } from '../provision.js';
 import { networkOf } from '../network.js';
 import { vpnInfoFor } from '../vpn.js';
@@ -82,6 +84,13 @@ function osOf(row, ostype) {
   return row.type === 'lxc' ? 'linux' : null;
 }
 
+const SSH_KEY_ERROR = 'One of the SSH keys is not in OpenSSH format (ssh-ed25519 AAAA… or ssh-rsa AAAA…)';
+function badSshKeys(keys) {
+  if (!keys?.trim()) return false;
+  return keys.trim().split(/\r?\n/)
+    .some((l) => l.trim() && !/^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-|sk-)\S*\s+\S+/.test(l.trim()));
+}
+
 function summarize(row, guest) {
   return {
     os: osOf(row, guest?.ostype),
@@ -91,6 +100,7 @@ function summarize(row, guest) {
     error: row.state === 'failed' ? row.error : null,
     progress: row.state === 'creating' ? row.progress : null,
     deletable: !!row.created_by_customer,
+    reinstallable: !!row.created_by_customer,
     name: row.label || guest?.name || (row.spec && JSON.parse(row.spec).hostname) || `Server ${row.vmid}`,
     hostname: guest?.name ?? null,
     status: guest?.status ?? 'unknown',
@@ -187,13 +197,34 @@ export default async function vmRoutes(app) {
     },
   }, async (req, reply) => {
     const spec = { ...req.body };
-    if (spec.sshKeys?.trim()) {
-      const bad = spec.sshKeys.trim().split(/\r?\n/)
-        .filter((l) => l.trim() && !/^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-|sk-)\S*\s+\S+/.test(l.trim()));
-      if (bad.length) return reply.code(400).send({ error: 'One of the SSH keys is not in OpenSSH format (ssh-ed25519 AAAA… or ssh-rsa AAAA…)' });
-    }
+    if (badSshKeys(spec.sshKeys)) return reply.code(400).send({ error: SSH_KEY_ERROR });
     const vmid = await createServer(req, spec);
     return reply.code(202).send({ vmid });
+  });
+
+  // Reinstall: fresh copy of an image, same ID, name, size and network address
+  app.post('/api/vms/:vmid/reinstall', {
+    config: { rateLimit: { max: 10, timeWindow: '1 hour' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['templateId'],
+        additionalProperties: false,
+        properties: {
+          templateId: { type: 'integer', minimum: 100 },
+          username: { type: 'string', pattern: '^[a-z_][a-z0-9_-]{0,31}$' },
+          password: { type: 'string', minLength: 12, maxLength: 200 },
+          sshKeys: { type: 'string', maxLength: 16000 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const vmid = Number(req.params.vmid);
+    const row = Number.isInteger(vmid) ? ownedByUser.get(vmid, req.account.id) : null;
+    if (!row) throw notFound();
+    if (badSshKeys(req.body.sshKeys)) return reply.code(400).send({ error: SSH_KEY_ERROR });
+    await reinstallServer(req, row, { ...req.body });
+    return reply.code(202).send({ started: true });
   });
 
   app.delete('/api/vms/:vmid', {
@@ -253,6 +284,9 @@ export default async function vmRoutes(app) {
       ...summarize(row, { ...guest, ...status, maxcpu: status.cpus ?? guest.maxcpu }),
       os: cfg.ostype ?? null,          // raw Proxmox ostype, e.g. "win11", "l26"
       osFamily: osOf(row, cfg.ostype),  // 'windows' | 'linux' | null
+      // for the reinstall form: current image and disk size
+      templateId: row.spec ? JSON.parse(row.spec).template ?? null : null,
+      diskGb: (() => { const k = bootDiskKey(cfg); return k ? Math.ceil(diskSizeGb(cfg[k])) : null; })(),
       memoryMb: Number(cfg.memory) || null,
       cores: (Number(cfg.cores) || 1) * (Number(cfg.sockets) || 1),
       ipconfig: cfg.ipconfig0 ?? cfg.net0 ?? null,

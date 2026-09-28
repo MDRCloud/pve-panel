@@ -107,6 +107,7 @@ PVE Panel was built with substantial help from an AI assistant (**Claude by Anth
 - Create, restore and delete snapshots (optionally including RAM)
 - Launch an integrated browser console
 - Create new servers from administrator-approved templates
+- Reinstall self-created servers from a template (same name, size and network address)
 - Delete self-created servers
 - View provisioning progress and actionable failure messages
 - Manage personal VPN devices
@@ -1114,6 +1115,7 @@ Only these file names are served, with a strict sandbox policy. Make sure you're
 | `GET` | `/api/account` | Limits, usage, network, panel version |
 | `GET` | `/api/templates` | Available templates |
 | `POST` | `/api/vms` | Provision a server |
+| `POST` | `/api/vms/:vmid/reinstall` | Reinstall a self-created server from a template |
 | `DELETE` | `/api/vms/:vmid` | Delete a self-created server |
 | `GET` | `/api/vpn` | VPN state |
 | `POST` | `/api/vpn/devices` | Add VPN device |
@@ -1160,6 +1162,18 @@ The administrator API is available only through the administrator server and an 
 
 Only one provisioning job per customer can run at a time.
 
+### Reinstall
+
+Customers can start a self-created server fresh from any offered template that fits its disk:
+
+- everything on the disk is erased, **including all snapshots** (and a Tailscale connection)
+- name, VM ID, size and **MAC address** stay — so DHCP usually hands out the same IP
+- the server stays in the customer's private network; isolation rules are re-applied
+- new sign-in details are chosen like at creation; Windows ⇄ Linux switches are possible
+- confirmed by typing the server name; a failed reinstall can simply be retried
+
+Servers assigned by an administrator cannot be reinstalled by customers.
+
 If provisioning fails, the customer receives a visible failure state instead of a permanently spinning setup process.
 
 ---
@@ -1186,7 +1200,6 @@ Confirm that:
 
 Potential future improvements include:
 
-- Reinstall/rebuild from template
 - Cross-node placement
 - Integrated backup management
 - Customer-managed firewall rules
