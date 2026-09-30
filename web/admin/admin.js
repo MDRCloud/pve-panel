@@ -1054,19 +1054,25 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
             </div>`;
         }
         let attempts = 0;
-        const poll = setInterval(async () => {
-          attempts += 1;
-          try {
-            await fetch('/api/admin/about', { cache: 'no-store' });
-            clearInterval(poll);
-            window.location.reload();
-          } catch {
-            if (attempts > 60) {
-              clearInterval(poll);
-              toast('Update is taking longer than expected. Please check VM terminal / logs if needed.', 'error');
+        // Wait 10 seconds before starting to poll to let the rebuild kick in smoothly
+        setTimeout(() => {
+          const poll = setInterval(async () => {
+            attempts += 1;
+            try {
+              const res = await fetch('/api/admin/about', { cache: 'no-store' });
+              if (res.ok) {
+                clearInterval(poll);
+                window.location.reload();
+              }
+            } catch {
+              // Server is rebooting, wait quietly
+              if (attempts > 60) {
+                clearInterval(poll);
+                toast('Update is taking longer than expected. Please check VM terminal / logs if needed.', 'error');
+              }
             }
-          }
-        }, 3000);
+          }, 3000);
+        }, 10000);
       } catch (err) { fail(err); }
       return;
     }

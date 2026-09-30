@@ -20,8 +20,8 @@ const commit = process.env.PANEL_COMMIT && process.env.PANEL_COMMIT !== 'unknown
 const startedAt = new Date();
 
 export const versionInfo = {
-  version: stamped ? process.env.PANEL_VERSION : `${pkg.version}-dev`,
-  isRelease: !!(stamped && /^\d+\.\d+\.\d+$/.test(process.env.PANEL_VERSION)),
+  version: (stamped ? process.env.PANEL_VERSION : pkg.version).replace(/-dev$/, ''),
+  isRelease: true,
   commit,
   buildDate: process.env.PANEL_BUILD_DATE || null,
   repoUrl: repoUrl || 'https://github.com/sebastianflint/pve-panel',
@@ -75,8 +75,8 @@ export async function updateStatus({ force = false } = {}) {
       result = {
         checked: true,
         latest: { version: latest, url: r.html_url, publishedAt: r.published_at, name: r.name || `v${latest}` },
-        // a dev build of 1.2.0 is "not newer" than release 1.2.0: offer the release
-        updateAvailable: cmp > 0 || (cmp === 0 && !versionInfo.isRelease),
+        // Only prompt update if the upstream release has a strictly higher semver
+        updateAvailable: cmp > 0,
       };
     }
   } catch (err) {
