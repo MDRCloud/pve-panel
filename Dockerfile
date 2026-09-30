@@ -25,6 +25,7 @@ COPY src ./src
 COPY web ./web
 COPY scripts ./scripts
 COPY docs ./docs
+COPY branding ./branding
 
 # Runs as the unprivileged "node" user; the database lives in a volume
 RUN mkdir -p /app/data && chown node:node /app/data

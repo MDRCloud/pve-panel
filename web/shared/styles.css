@@ -1,60 +1,42 @@
 /* =========================================================================
-   Design tokens
-   Fog background, white surfaces, slate ink (text + sidebar), one signal
-   blue for actions, and status colours that mean the same thing everywhere.
+   MDRCloud Design Tokens
+   Deep root background, dark surfaces, electric blue signals, vibrant accents.
    ========================================================================= */
 :root {
-  --bg: #eef2f6;
-  --surface: #ffffff;
-  --surface-2: #f6f8fb;
-  --ink: #172230;
-  --muted: #5a6878;
-  --line: #d9e0e8;
-  --signal: #3558e6;
+  --bg: #02040a;
+  --surface: #0a0d18;
+  --surface-2: #0d111e;
+  --ink: #f8fafc;
+  --muted: #94a3b8;
+  --line: rgba(255, 255, 255, 0.10);
+  --signal: #3b82f6;
   --signal-ink: #ffffff;
-  --run: #1f9d6b;
-  --warn: #e09b2d;
-  --danger: #d14343;
+  --run: #10b981;
+  --warn: #f59e0b;
+  --danger: #ef4444;
 
-  --side: #172230;
-  --side-ink: #e6ecf3;
-  --side-muted: #93a2b5;
-  --side-hover: rgb(255 255 255 / 0.07);
-  --side-active: rgb(255 255 255 / 0.11);
+  --side: #04070f;
+  --side-ink: #f8fafc;
+  --side-muted: #94a3b8;
+  --side-hover: rgba(59, 130, 246, 0.12);
+  --side-active: rgba(59, 130, 246, 0.22);
 
   /* aliases used by older markup and the console page */
   --accent: var(--signal);
   --accent-ink: var(--signal-ink);
-  --idle: #9aa6b2;
-  --chart-a: var(--signal);
-  --chart-b: var(--run);
+  --idle: #64748b;
+  --chart-a: #3b82f6;
+  --chart-b: #06b6d4;
 
-  --sans: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: "Comfortaa", "Plus Jakarta Sans", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 16px;
 
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1720;
-    --surface: #16212d;
-    --surface-2: #1b2836;
-    --ink: #e4eaf1;
-    --muted: #93a2b5;
-    --line: #2a3848;
-    --signal: #7c94ff;
-    --signal-ink: #0f1720;
-    --run: #3ccb8c;
-    --warn: #f0b04d;
-    --danger: #f07171;
-    --side: #0b121a;
-    --idle: #5d6d7d;
-  }
+  color-scheme: dark;
 }
 
 /* =========================================================================
@@ -69,7 +51,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 [hidden] { display: none !important; }
-h1, h2, h3 { line-height: 1.2; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.2; font-weight: 600; }
 .mono { font-family: var(--mono); font-size: 0.9em; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }

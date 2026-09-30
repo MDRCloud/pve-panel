@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Server panel</title>
+  <title>MDRCloud LXC Portal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="/shared/styles.css">
   <script type="module" src="/app.js"></script>
 </head>
@@ -28,14 +28,14 @@
         <circle class="lg-node" cx="70" cy="230" r="16"/>
         <rect class="lg-vpn" x="176" y="14" width="68" height="30" rx="15"/>
       </svg>
-      <p class="login-claim">Your servers in your own private network, reachable from anywhere through your VPN.</p>
+      <p class="login-claim">High-performance LXC container hosting and management powered by MDRCloud.</p>
     </section>
     <section class="login-panel">
       <form id="login-form" class="login-box" novalidate>
         <div class="login-brand small"><span data-brand-mark></span><span data-brand></span></div>
         <h1>Sign in</h1>
-        <label>Email
-          <input name="email" type="email" autocomplete="username" required>
+        <label>Email or Username
+          <input name="email" type="text" autocomplete="username" required>
         </label>
         <label>Password
           <input name="password" type="password" autocomplete="current-password" required>

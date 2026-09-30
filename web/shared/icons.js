@@ -25,6 +25,7 @@ const paths = {
   // OS glyphs: neutral shapes, not vendor logos
   linux: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7 10l2.5 2L7 14M11.5 14.5H16"/>',
   windows: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M3 9h18M6 6.8h.01M8.5 6.8h.01"/>',
+  lxc: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
 };
 
 export function icon(name, { size = 18, cls = '' } = {}) {
@@ -35,22 +36,17 @@ export function icon(name, { size = 18, cls = '' } = {}) {
 let customOsIcons = {};
 export const customOsIcon = (os) => customOsIcons[os] ?? null;
 
-/** OS glyph for a server: 'windows' | 'linux' | anything else = generic server. */
+/** OS glyph for a server: 'windows' | 'linux' | 'lxc' | anything else = generic server. */
 export function osIcon(os, size = 20) {
   const own = customOsIcon(os);
   if (own) return `<img class="os-glyph os-img" src="${own}" width="${size}" height="${size}" alt="">`;
+  if (os === 'lxc') return icon('lxc', { size, cls: 'os-glyph' });
   return icon(os === 'windows' ? 'windows' : os === 'linux' ? 'linux' : 'server', { size, cls: 'os-glyph' });
 }
 
-/** Brand mark: a hub with three connected nodes, the product's network motif. */
+/** Brand mark: MDRCloud logo */
 export function brandMark(size = 28) {
-  return `<svg class="brand-mark" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true">
-    <path d="M16 16L7 8M16 16l10-4M16 16l-3 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".55"/>
-    <circle cx="16" cy="16" r="5" fill="var(--signal)"/>
-    <circle cx="7" cy="8" r="3" fill="currentColor"/>
-    <circle cx="26" cy="12" r="3" fill="currentColor"/>
-    <circle cx="13" cy="27" r="3" fill="currentColor"/>
-  </svg>`;
+  return `<img class="brand-mark" src="/branding/mdrc-logo-1000x1000-dark.png" width="${size}" height="${size}" alt="MDRCloud" style="border-radius:6px;object-fit:contain;vertical-align:middle;display:inline-block">`;
 }
 
 /** Fetches the product name and applies it to the page (title + [data-brand]). */

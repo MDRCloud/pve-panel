@@ -19,6 +19,19 @@ export const config = {
   // Admin interface: separate server, local-only by default
   adminPort: Number(process.env.ADMIN_PORT || 3001),
   adminHost: process.env.ADMIN_HOST || '127.0.0.1',
+  adminAllowedSubnets: (process.env.ADMIN_ALLOWED_SUBNETS
+    || '10.20.100.0/24,10.95.0.0/24,10.95.20.0/24,127.0.0.1/32,::1/128')
+    .split(',').map((s) => s.trim()).filter(Boolean),
+  ad: {
+    enabled: process.env.AD_ENABLED === 'true',
+    url: process.env.AD_URL || 'ldap://10.20.100.11:389',
+    bindDn: process.env.AD_BIND_DN || 'lxc.panel@mdrcloud.net',
+    bindPassword: process.env.AD_BIND_PASSWORD || '',
+    baseDn: process.env.AD_BASE_DN || 'DC=mdrcloud,DC=net',
+    domain: process.env.AD_DOMAIN || 'mdrcloud.net',
+    adminGroups: (process.env.AD_ADMIN_GROUPS || 'Domain Admins,Administrators,WebApp_vCenter_Admin')
+      .split(',').map((g) => g.trim()).filter(Boolean),
+  },
   jwtSecret: required('JWT_SECRET'),
   cookieSecure: process.env.COOKIE_SECURE !== 'false',
   dbPath: process.env.DB_PATH || './data/panel.db',

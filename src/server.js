@@ -84,7 +84,7 @@ async function brandingFiles(app) {
     root: brandingDir,
     prefix: '/branding/',
     decorateReply: false,
-    allowedPath: (p) => ICON_FILE.test(p.replace(/^\//, '')),
+    allowedPath: (p) => /\.(svg|png|webp|ico|jpg|jpeg)$/i.test(p),
     setHeaders: (res) => {
       // Files added by the operator: never allow scripts, even in an SVG opened directly.
       res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
@@ -138,8 +138,41 @@ const customer = await buildServer('customer', async (app) => {
   });
 });
 
+function ipToInt(ip) {
+  return ip.split('.').reduce((acc, oct) => ((acc << 8) + parseInt(oct, 10)) >>> 0, 0);
+}
+
+function isIpAllowed(remoteIp, subnets) {
+  if (!remoteIp) return false;
+  const cleanIp = remoteIp.startsWith('::ffff:') ? remoteIp.slice(7) : remoteIp;
+  if (cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp === 'localhost') return true;
+  if (!cleanIp.includes('.')) return false;
+
+  const clientInt = ipToInt(cleanIp);
+  for (const cidr of subnets) {
+    if (cidr === cleanIp) return true;
+    if (cidr.includes('/')) {
+      const [net, bitsStr] = cidr.split('/');
+      const bits = parseInt(bitsStr, 10);
+      const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+      if ((clientInt & mask) === (ipToInt(net) & mask)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // ---- Admin interface --------------------------------------------------------
 const admin = await buildServer('admin', async (app) => {
+  app.addHook('onRequest', async (req, reply) => {
+    const remoteIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress;
+    if (!isIpAllowed(remoteIp, config.adminAllowedSubnets)) {
+      req.log.warn({ remoteIp }, 'Admin interface access blocked: IP not in allowed subnets');
+      return reply.code(403).send({ error: 'Access denied: Admin interface is restricted to authorized subnets.' });
+    }
+  });
+
   await app.register(authPlugin, { scope: 'admin' });
   await app.register(adminRoutes);
 

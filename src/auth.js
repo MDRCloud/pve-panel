@@ -6,6 +6,7 @@ import { db, audit } from './db.js';
 import * as totp from './totp.js';
 import * as oidc from './oidc.js';
 import { checkInvitation, acceptInvitation } from './invite.js';
+import { authenticateAD } from './ad.js';
 
 const SESSION_HOURS = 8;
 // Compared against when the email is unknown, so response time
@@ -55,9 +56,16 @@ async function authPlugin(app, { scope }) {
 
   app.decorate('requireAdmin', app.authenticate);
 
-  const cookieOpts = (maxAge) => ({
-    path: '/', httpOnly: true, secure: config.cookieSecure, sameSite: 'strict', maxAge,
-  });
+  const cookieOpts = (req, maxAge) => {
+    const isHttps = req ? (req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https') : false;
+    return {
+      path: '/',
+      httpOnly: true,
+      secure: config.cookieSecure ? isHttps : false,
+      sameSite: 'lax',
+      maxAge,
+    };
+  };
   const pendingCookie = `${cookieName}_2fa`;
   const me = (u) => ({ id: u.id, email: u.email, isAdmin: !!u.is_admin });
 
@@ -67,14 +75,14 @@ async function authPlugin(app, { scope }) {
     audit(req, null, adminOnly ? 'admin_login' : 'login', how ? { twoFactor: how } : null);
     return reply
       .clearCookie(pendingCookie, { path: '/' })
-      .setCookie(cookieName, token, cookieOpts(SESSION_HOURS * 3600))
+      .setCookie(cookieName, token, cookieOpts(req, SESSION_HOURS * 3600))
       .send(me(user));
   }
 
   /** Password was right; the second step is pending for 5 minutes. */
-  function pending(reply, user, stage) {
+  function pending(req, reply, user, stage) {
     const token = app.jwt.sign({ sub: user.id, scope: `${scope}:2fa`, stage }, { expiresIn: '5m' });
-    return reply.setCookie(pendingCookie, token, cookieOpts(300)).send({ twoFactor: stage });
+    return reply.setCookie(pendingCookie, token, cookieOpts(req, 300)).send({ twoFactor: stage });
   }
 
   function pendingUser(req, stage) {
@@ -107,16 +115,46 @@ async function authPlugin(app, { scope }) {
       return reply.code(403).send({ error: 'Signing in with a password is turned off. Use single sign-on.' });
     }
     const { email, password } = req.body;
-    const user = findByEmail.get(email.trim());
-    const ok = await bcrypt.compare(password, user?.password_hash ?? DUMMY_HASH);
+    let user = findByEmail.get(email.trim().toLowerCase());
+
+    // 1. Try Active Directory authentication if enabled
+    let adResult = null;
+    if (config.ad?.enabled) {
+      try {
+        adResult = await authenticateAD(email, password);
+      } catch (err) {
+        req.log.warn({ err }, 'AD authentication error');
+      }
+    }
+
+    let ok = false;
+    if (adResult?.ok) {
+      user = findByEmail.get(adResult.email.toLowerCase());
+      if (!user) {
+        // Auto-provision user in SQLite database from Active Directory
+        const info = db.prepare('INSERT INTO users (email, password_hash, is_admin) VALUES (?, ?, ?)')
+          .run(adResult.email.toLowerCase(), '*ACTIVE_DIRECTORY*', adResult.isAdmin ? 1 : 0);
+        user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+      } else {
+        // Keep admin flag in sync if AD grants admin
+        if (adResult.isAdmin && !user.is_admin) {
+          db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(user.id);
+          user.is_admin = 1;
+        }
+      }
+      ok = true;
+    } else {
+      // Fallback: check local SQLite password
+      ok = await bcrypt.compare(password, user?.password_hash ?? DUMMY_HASH);
+    }
 
     // Non-admins get the same answer as a wrong password on the admin port.
     if (!user || !ok || user.deleting || (adminOnly && !user.is_admin)) {
       audit(req, null, adminOnly ? 'admin_login_failed' : 'login_failed', { email });
       return reply.code(401).send({ error: 'Email or password is incorrect' });
     }
-    if (user.totp_enabled) return pending(reply, user, 'verify');
-    if (user.totp_required) return pending(reply, user, 'setup');
+    if (user.totp_enabled) return pending(req, reply, user, 'verify');
+    if (user.totp_required) return pending(req, reply, user, 'setup');
     return startSession(req, reply, user, null);
   });
 
