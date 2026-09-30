@@ -152,16 +152,17 @@ async function serverContext(req, vmid) {
   const guest = await locateGuest(vmid);
   const path = guestPath(guest);
   const cfg = await pve.get(`${path}/config`);
-  return { vm, guest, path, os: osFamily(cfg), agentConfigured: /^1|enabled=1/.test(String(cfg.agent ?? '')) };
+  return { vm, guest, path, type: vm.type, os: osFamily(cfg), agentConfigured: /^1|enabled=1/.test(String(cfg.agent ?? '')) };
 }
 
 export async function tailscaleStatus(req, vmid) {
   if (!config.tailscale.enabled) return { available: false };
-  const { guest, path, os, agentConfigured } = await serverContext(req, vmid);
+  const { vm, guest, path, type, os, agentConfigured } = await serverContext(req, vmid);
   const r = row(vmid);
   const net = networkOf(req.account.id);
   const base = {
     available: true,
+    type,
     os,
     gatewayPossible: os === 'linux' && !!net,
     subnet: net?.subnet ?? null,

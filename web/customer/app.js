@@ -561,6 +561,40 @@ async function renderRemote(body) {
     return;
   }
 
+  // LXC container: Guided one-command setup with direct console launcher
+  if (ts.type === 'lxc' || vm.type === 'lxc') {
+    const isRunning = vm.status === 'running';
+    body.innerHTML = `
+      <div class="ts">
+        <h2 class="h2">Connect to your Tailnet</h2>
+        <p class="muted ts-lede">Connect <strong>${esc(vm.name)}</strong> to your personal Tailscale network for encrypted, direct access from your phone or computer without public IP ports.</p>
+        <div class="notice" style="background:rgba(59,130,246,0.1);border-left:3px solid var(--signal);padding:12px 14px;border-radius:var(--r-sm);margin:16px 0;">
+          <p><strong>Hardware TUN Enabled:</strong> This container has TUN/TAP networking enabled on the host. You can link it to your Tailscale account in one quick step.</p>
+        </div>
+        <div style="margin-top:16px;">
+          <label style="display:block;margin-bottom:6px;"><strong>Step 1:</strong> Run this command inside your container</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" readonly class="mono" id="ts-cmd-box" value="curl -fsSL https://tailscale.com/install.sh | sh &amp;&amp; tailscale up" style="flex:1;background:var(--surface-2);cursor:pointer;" onclick="this.select()">
+            <button type="button" class="btn" id="btn-copy-ts-cmd">${icon('download')}<span>Copy Command</span></button>
+          </div>
+        </div>
+        <div style="margin-top:20px;">
+          <label style="display:block;margin-bottom:6px;"><strong>Step 2:</strong> Open console to paste and authenticate</label>
+          <p class="muted small" style="margin-bottom:12px;">Launch the web console, paste the command, and follow the generated link in your browser to approve the container in your Tailscale admin console.</p>
+          <button type="button" class="btn primary" id="btn-open-ts-console" ${isRunning ? '' : 'disabled'}>${icon('terminal')}<span>Open Web Console</span></button>
+          ${isRunning ? '' : '<p class="form-error" style="margin-top:8px;">Start the container to open its console.</p>'}
+        </div>
+      </div>`;
+    $('#btn-copy-ts-cmd')?.addEventListener('click', () => {
+      navigator.clipboard.writeText('curl -fsSL https://tailscale.com/install.sh | sh && tailscale up');
+      toast('Command copied to clipboard!');
+    });
+    $('#btn-open-ts-console')?.addEventListener('click', () => {
+      window.open(`/console.html?vmid=${vmid}`, `console-${vmid}`, 'width=1100,height=760');
+    });
+    return;
+  }
+
   // none or failed: the connect form
   const blocked = !ts.running ? 'Start the server to connect it to Tailscale.'
     : !ts.agentConfigured ? 'The QEMU guest agent must be installed in the server and enabled in its options. Ask your provider if you are unsure.'
