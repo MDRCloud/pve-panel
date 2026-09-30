@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for MDRCloud LXC Panel update trigger
+
+[Path]
+PathModified=/opt/mdrcloud-lxc-panel/data/.update_trigger
+Unit=mdrcloud-panel-updater.service
+
+[Install]
+WantedBy=multi-user.target

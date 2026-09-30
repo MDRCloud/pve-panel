@@ -56,6 +56,7 @@ const ACTION_LABELS = {
   admin_twofa_require: 'Required two-factor authentication',
   admin_twofa_unrequire: 'Made two-factor authentication optional',
   admin_twofa_reset: 'Reset two-factor authentication',
+  admin_update_triggered: 'Triggered panel update',
   cli_twofa_reset: 'Reset two-factor authentication (command line)',
   sso_login_failed: 'Failed single sign-on',
   admin_sso_login_failed: 'Failed single sign-on (administration)',
@@ -901,6 +902,8 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
           ? `<div class="notice about-notice ok"><p><strong>You're running the latest release.</strong></p></div>`
           : `<div class="notice about-notice"><p>${esc(u.reason ?? 'No releases published yet.')}</p></div>`;
 
+    const updateBtn = `<button class="btn ${u.updateAvailable ? 'primary' : ''}" data-trigger-update>${u.updateAvailable ? 'Update LXC Panel' : 'Sync & Rebuild Panel'}</button>`;
+
     root.querySelector('#admin-body').innerHTML = `
       <div class="about">
         <div class="about-head">
@@ -916,20 +919,15 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
           <div><dt>Node.js</dt><dd class="mono">${esc(a.node)}</dd></div>
           <div><dt>Source</dt><dd>${a.repoUrl ? ext(a.repoUrl, esc(a.repoUrl.replace(/^https:\/\//, ''))) : '–'}</dd></div>
         </dl>
-        <div class="row">
+        <div class="row" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          ${updateBtn}
           <button class="btn" data-check-updates>Check for updates now</button>
           ${u.checkedAt ? `<span class="muted small">Last checked ${esc(date(u.checkedAt))}</span>` : ''}
         </div>
 
-        <h2 class="h2">How to update</h2>
-        <ol class="about-steps">
-          <li><strong>Portainer:</strong> Stacks, your stack, <em>Update the stack</em> with
-            <em>Re-pull image and redeploy</em> switched on.</li>
-          <li><strong>UGREEN Docker app:</strong> Project, your project, redeploy it (it pulls the image again).</li>
-          <li><strong>Command line:</strong> <span class="mono">docker compose pull && docker compose up -d</span></li>
-        </ol>
-        <p class="muted small">If you pinned a release in <span class="mono">PANEL_IMAGE</span>, change the version
-          there first. Your data stays in the volume; database changes are applied automatically at start.</p>
+        <h2 class="h2">Panel Maintenance & Updates</h2>
+        <p class="muted">Clicking <strong>${u.updateAvailable ? 'Update LXC Panel' : 'Sync & Rebuild Panel'}</strong> pulls the latest changes from the repository and rebuilds the container automatically via host automation. Database migrations and configuration settings are preserved.</p>
+        <p class="muted small">Manual command line update: <span class="mono">cd /opt/mdrcloud-lxc-panel && git pull origin main && docker compose up -d --build</span></p>
       </div>`;
   }
 
@@ -1035,6 +1033,40 @@ export function createAdmin({ root, api, toast, fail, confirmAction, promptText,
         st.email = await api('/api/admin/settings/email');
         toast('Email settings removed');
         renderSettings();
+      } catch (err) { fail(err); }
+      return;
+    }
+
+    if (t.hasAttribute('data-trigger-update')) {
+      if (!(await confirmAction('Start the panel update now? The panel will pull the latest code, rebuild the container, and reload within 1-2 minutes.', 'Update Now'))) return;
+      try {
+        await api('/api/admin/update/trigger', { method: 'POST' });
+        toast('Update started. Rebuilding panel in background…');
+        const body = root.querySelector('#admin-body');
+        if (body) {
+          body.innerHTML = `
+            <div class="empty" style="text-align:center; margin: 40px auto; max-width: 480px;">
+              <h2>Updating MDRCloud LXC Panel</h2>
+              <p class="muted">The system updater has received the signal and is fetching git commits and rebuilding the Docker container. This usually takes 30-90 seconds.</p>
+              <div style="margin-top: 24px;">
+                <span class="led running"></span> Waiting for panel to restart…
+              </div>
+            </div>`;
+        }
+        let attempts = 0;
+        const poll = setInterval(async () => {
+          attempts += 1;
+          try {
+            await fetch('/api/admin/about', { cache: 'no-store' });
+            clearInterval(poll);
+            window.location.reload();
+          } catch {
+            if (attempts > 60) {
+              clearInterval(poll);
+              toast('Update is taking longer than expected. Please check VM terminal / logs if needed.', 'error');
+            }
+          }
+        }, 3000);
       } catch (err) { fail(err); }
       return;
     }

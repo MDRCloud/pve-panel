@@ -1,0 +1,9 @@
+[Unit]
+Description=MDRCloud LXC Panel Updater Service
+After=network.target docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/mdrcloud-lxc-panel
+ExecStart=/opt/mdrcloud-lxc-panel/update.sh

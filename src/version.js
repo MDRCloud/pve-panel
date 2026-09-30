@@ -13,7 +13,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 
 const repoUrl = (process.env.PANEL_REPO_URL
   || String(pkg.repository?.url ?? '').replace(/^git\+/, '').replace(/\.git$/, '')).replace(/\/+$/, '');
-const repoPath = /github\.com\/([^/]+\/[^/]+)/.exec(repoUrl)?.[1] ?? null;
+const repoPath = /github\.com\/([^/]+\/[^/]+)/.exec(repoUrl)?.[1] ?? 'sebastianflint/pve-panel';
 
 const stamped = process.env.PANEL_VERSION && process.env.PANEL_VERSION !== 'dev';
 const commit = process.env.PANEL_COMMIT && process.env.PANEL_COMMIT !== 'unknown' ? process.env.PANEL_COMMIT : null;
@@ -24,7 +24,7 @@ export const versionInfo = {
   isRelease: !!(stamped && /^\d+\.\d+\.\d+$/.test(process.env.PANEL_VERSION)),
   commit,
   buildDate: process.env.PANEL_BUILD_DATE || null,
-  repoUrl: repoUrl || null,
+  repoUrl: repoUrl || 'https://github.com/sebastianflint/pve-panel',
   commitUrl: repoUrl && commit ? `${repoUrl}/commit/${commit}` : null,
   releaseUrl: repoUrl && stamped ? `${repoUrl}/releases/tag/v${process.env.PANEL_VERSION}` : null,
   node: process.version,
@@ -34,8 +34,9 @@ export const versionInfo = {
 // ---- Update check -------------------------------------------------------------------
 
 const CHECK_EVERY = 6 * 3600 * 1000;
-const enabled = process.env.UPDATE_CHECK !== 'false' && !!repoPath;
-const url = process.env.UPDATE_CHECK_URL || (repoPath ? `https://api.github.com/repos/${repoPath}/releases/latest` : null);
+const enabled = process.env.UPDATE_CHECK !== 'false';
+const upstreamRepo = process.env.UPSTREAM_REPO || 'sebastianflint/pve-panel';
+const url = process.env.UPDATE_CHECK_URL || `https://api.github.com/repos/${upstreamRepo}/releases/latest`;
 let cache = { at: 0, result: null };
 
 /** "1.10.2" > "1.9.9"; pre-release/dev suffixes are compared by their base version. */

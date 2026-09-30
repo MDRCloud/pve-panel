@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { db, audit } from '../db.js';
 import { pve, clusterGuests, locateGuest, locateTemplate, invalidateGuestCache, guestPath } from '../pve.js';
@@ -441,6 +443,14 @@ export default async function adminRoutes(app) {
     uptimeSeconds: Math.round(process.uptime()),
     update: await updateStatus({ force: req.query.refresh === '1' }),
   }));
+
+  app.post('/api/admin/update/trigger', async (req) => {
+    const dataDir = path.dirname(path.resolve(config.dbPath));
+    const triggerFile = path.join(dataDir, '.update_trigger');
+    fs.writeFileSync(triggerFile, new Date().toISOString(), 'utf8');
+    audit(req, null, 'admin_update_triggered', { triggeredBy: req.user?.email || 'admin' });
+    return { ok: true, message: 'Update process triggered successfully.' };
+  });
 
   // ---- Networks -------------------------------------------------------------
   app.get('/api/admin/networks', async () => allNetworks());
